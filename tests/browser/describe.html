@@ -1,0 +1,80 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>running</title>
+<script type="module">
+    // Runs AltMonitor's own worker and bundled library, as the control panel does, on real photos.
+    const dist = new URL('../../src/web/assets/cp/dist/', location.href);
+    const images = new URLSearchParams(location.search).getAll('image');
+    const worker = new Worker(new URL('describe-worker.js', dist), {type: 'module'});
+    const results = [];
+    let started = performance.now();
+    let pending = null;
+
+    const finish = (state) => {
+        document.title = state + ':' + JSON.stringify(results);
+    };
+
+    worker.onmessage = async ({data}) => {
+        if (data.type === 'ready') {
+            results.push({loadedMs: Math.round(performance.now() - started)});
+
+            // Each photo twice: the second time with the first description to avoid, as when
+            // someone describes an image again, which must give a different description.
+            for (const url of images) {
+                const blob = await (await fetch(url)).blob();
+                const run = async (avoid) => {
+                    const begun = performance.now();
+                    const answer = await new Promise((resolve, reject) => {
+                        pending = {resolve, reject};
+                        worker.postMessage({type: 'describe', id: results.length, image: blob, avoid});
+                    });
+                    return {...answer, ms: Math.round(performance.now() - begun)};
+                };
+                const first = await run([]);
+                const again = await run([first.text]);
+                results.push({image: url.split('/').pop(), text: first.text, ms: first.ms, again: again.text, againMs: again.ms, againFresh: again.fresh});
+            }
+
+            // The model is kept in the browser: list what was cached, then load it again in a
+            // fresh worker, as a later visit would, and time that.
+            const cache = await caches.open('transformers-cache');
+            const cached = (await cache.keys()).map((request) => request.url);
+            let bytes = 0;
+
+            for (const url of cached) {
+                bytes += (await (await cache.match(url)).blob()).size;
+            }
+
+            results.push({cached, cachedMB: Math.round(bytes / 1e6)});
+            worker.terminate();
+            started = performance.now();
+            const again = new Worker(new URL('describe-worker.js', dist), {type: 'module'});
+            let downloaded = 0;
+            again.onmessage = ({data}) => {
+                if (data.type === 'progress') {
+                    downloaded = data.total;
+                } else if (data.type === 'ready') {
+                    results.push({reloadedMs: Math.round(performance.now() - started), reloadProgressMB: Math.round(downloaded / 1e6)});
+                    finish('done');
+                } else if (data.type === 'error') {
+                    results.push({error: data.message});
+                    finish('error');
+                }
+            };
+            again.postMessage({type: 'load', config: {library: new URL('vendor/transformers.min.js', dist).href, model: 'onnx-community/Florence-2-base-ft'}});
+        } else if (data.type === 'description') {
+            pending.resolve({text: data.text, fresh: data.fresh});
+        } else if (data.type === 'error') {
+            results.push({error: data.message});
+            pending ? pending.reject(new Error(data.message)) : finish('error');
+        }
+    };
+    worker.onerror = (event) => {
+        results.push({error: event.message || 'worker failed to start'});
+        finish('error');
+    };
+    worker.postMessage({type: 'load', config: {
+        library: new URL('vendor/transformers.min.js', dist).href,
+        model: 'onnx-community/Florence-2-base-ft',
+    }});
+</script>

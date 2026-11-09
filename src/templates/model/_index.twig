@@ -1,0 +1,223 @@
+{% extends '_layouts/cp' %}
+
+{#
+ # The image model page: everything someone should know before their browser downloads the model,
+ # their go-ahead, and the download itself. Which state is shown is decided in the browser (cp.js),
+ # because only the browser knows whether it already has the model.
+ #}
+{% set title = 'Image model'|t('alt-monitor') %}
+{% set selectedSubnavItem = 'image-model' %}
+{% do view.registerAssetBundle('Tahadudhiya\\AltMonitor\\web\\assets\\cp\\CpAsset') %}
+{% do view.registerTranslations('alt-monitor', [
+    'Downloading the image model (once): {loaded} of {total} MB',
+    'Loading the image model…',
+    'The image model could not be loaded: {message}',
+    'This browser can’t run the image model. Use a current version of Chrome, Edge, Firefox or Safari.',
+    'Downloaded on {date}.',
+    'Uses about {size} MB of this browser’s storage.',
+    'Remove the image model from this browser? It will be downloaded again the next time someone describes images here.',
+    'The image model was removed from this browser.',
+    'The image model is ready.',
+]) %}
+
+{% block content %}
+    {% set totalMegabytes = services|reduce((sum, service) => sum + service.megabytes, 0) %}
+    {% set externalHosts = services|filter(service => service.external)|map(service => service.host)|unique %}
+    <div class="altmonitor-model readable" data-altmonitor-model data-config="{{ config|json_encode }}" {% if returnUrl %}data-return="{{ returnUrl }}"{% endif %}>
+
+        {% if serverAi %}
+            <div class="altmonitor-state altmonitor-state--info">
+                <h2>{{ 'Images are described on the server'|t('alt-monitor') }}</h2>
+                <p>{{ 'This site is configured to describe images with Ollama on the server, so nothing needs to be downloaded in your browser.'|t('alt-monitor') }}</p>
+            </div>
+        {% endif %}
+
+        {# ---------- Status: one of these is shown ---------- #}
+        <div aria-live="polite">
+            <div class="altmonitor-state" data-model-state="checking">
+                <span class="spinner" aria-hidden="true"></span>
+                <p>{{ 'Checking whether this browser already has the image model…'|t('alt-monitor') }}</p>
+            </div>
+
+            <div class="altmonitor-state altmonitor-state--good" data-model-state="ready" hidden>
+                <h2>{{ 'The image model is ready on this browser'|t('alt-monitor') }}</h2>
+                <p>{{ 'You can describe images now. Nothing more will be downloaded on this browser.'|t('alt-monitor') }}</p>
+                <p class="light" data-ready-details></p>
+                <div class="flex">
+                    {% if returnUrl %}
+                        <a class="btn submit" href="{{ returnUrl }}" data-continue>{{ 'Continue describing'|t('alt-monitor') }}</a>
+                    {% else %}
+                        <a class="btn submit" href="{{ url('alt-monitor/images', {status: 'missing'}) }}">{{ 'Go to images without alt text'|t('alt-monitor') }}</a>
+                    {% endif %}
+                    <button type="button" class="btn" data-remove>{{ 'Remove from this browser'|t('alt-monitor') }}</button>
+                </div>
+            </div>
+
+            <div class="altmonitor-state altmonitor-state--info" data-model-state="missing" hidden>
+                <h2>{{ 'One-time download needed'|t('alt-monitor') }}</h2>
+                <p>
+                    {{ returnUrl
+                        ? 'Before it can describe images, this browser needs the free image model. You only do this once.'|t('alt-monitor')
+                        : 'This browser doesn’t have the image model yet. You only download it once.'|t('alt-monitor') }}
+                </p>
+            </div>
+
+            <div class="altmonitor-state" data-model-state="downloading" data-config="{{ config|json_encode }}" hidden>
+                <h2>{{ 'Downloading the image model…'|t('alt-monitor') }}</h2>
+                <div class="altmonitor-progress altmonitor-progress--large" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="{{ 'Download progress'|t('alt-monitor') }}">
+                    <div data-bar style="width: 0"></div>
+                </div>
+                <p data-status role="status"></p>
+                <p class="light">{{ 'Keep this tab open. If you leave, the download stops, and the files already finished are kept for next time.'|t('alt-monitor') }}</p>
+                <button type="button" class="btn" data-stop>{{ 'Cancel'|t('alt-monitor') }}</button>
+            </div>
+
+            <div class="altmonitor-state altmonitor-state--warning" data-model-state="not-kept" hidden>
+                <h2>{{ 'The model works, but this browser didn’t keep it'|t('alt-monitor') }}</h2>
+                <p>{{ 'Describing images will work, but this browser will download the model again each time. This happens in private windows, when the browser blocks site storage, or when the disk is almost full.'|t('alt-monitor') }}</p>
+                {% if returnUrl %}<a class="btn submit" href="{{ returnUrl }}" data-continue>{{ 'Continue describing'|t('alt-monitor') }}</a>{% endif %}
+            </div>
+
+            <div class="altmonitor-state altmonitor-state--warning" data-model-state="no-cache" hidden>
+                <h2>{{ 'This browser can’t keep the model here'|t('alt-monitor') }}</h2>
+                <p>{{ 'Browsers only keep downloaded files for sites opened over HTTPS. Over this connection the model would be downloaded every time images are described. Open the control panel with https:// to download it once.'|t('alt-monitor') }}</p>
+            </div>
+
+            <div class="altmonitor-state altmonitor-state--error" data-model-state="unsupported" hidden>
+                <h2>{{ 'This browser can’t run the image model'|t('alt-monitor') }}</h2>
+                <p>{{ 'Use a current version of Chrome, Edge, Firefox or Safari.'|t('alt-monitor') }}</p>
+            </div>
+
+            <div class="altmonitor-state altmonitor-state--error" data-model-state="error" hidden>
+                <h2>{{ 'The download didn’t finish'|t('alt-monitor') }}</h2>
+                <p data-error></p>
+                <p>{{ 'Check your internet connection and try again. Files that finished downloading are kept, so trying again is quicker.'|t('alt-monitor') }}</p>
+            </div>
+        </div>
+
+        {# ---------- Consent and download: the short version, with the details below ---------- #}
+        <section class="altmonitor-consent" data-consent hidden aria-labelledby="altmonitor-consent-heading">
+            <h2 id="altmonitor-consent-heading">{{ 'Download the image model'|t('alt-monitor') }}</h2>
+            <ul class="altmonitor-summary">
+                <li>{{ 'About {size} MB, downloaded once and kept in this browser.'|t('alt-monitor', {size: totalMegabytes}) }}</li>
+                <li>{{ 'Free. Your images never leave your site and your browser.'|t('alt-monitor') }}</li>
+                {% if externalHosts|length %}
+                    <li>{{ '{hosts} will see your IP address, as with any download.'|t('alt-monitor', {hosts: externalHosts|join(', ')}) }}</li>
+                {% endif %}
+            </ul>
+            <div class="checkbox-wrapper">
+                <input type="checkbox" class="checkbox" id="altmonitor-agree" data-agree>
+                <label for="altmonitor-agree">
+                    {{ externalHosts|length
+                        ? 'I have read the above and agree that this browser downloads about {size} MB from {hosts}, which will see my IP address.'|t('alt-monitor', {size: totalMegabytes, hosts: externalHosts|join(', ')})
+                        : 'I have read the above and agree that this browser downloads about {size} MB.'|t('alt-monitor', {size: totalMegabytes}) }}
+                </label>
+            </div>
+            <div class="flex flex-wrap">
+                <button type="button" class="btn submit" data-download disabled>{{ 'Download the image model ({size} MB)'|t('alt-monitor', {size: totalMegabytes}) }}</button>
+                <a href="#altmonitor-what" class="light">{{ 'Read the full details'|t('alt-monitor') }}</a>
+            </div>
+        </section>
+
+        {# ---------- What the download involves ---------- #}
+        <h2 class="altmonitor-details-heading">{{ 'The details'|t('alt-monitor') }}</h2>
+        <section class="altmonitor-info" aria-labelledby="altmonitor-what">
+            <h2 id="altmonitor-what">{{ 'What this is'|t('alt-monitor') }}</h2>
+            <p>{{ 'AltMonitor writes alt text suggestions by looking at each image itself, not at its file name. It does this with {model}, a free image-describing model made by Microsoft, which runs inside your web browser. There is no account, no API key and no cost.'|t('alt-monitor', {model: modelName}) }}</p>
+        </section>
+
+        <section class="altmonitor-info" aria-labelledby="altmonitor-download">
+            <h2 id="altmonitor-download">{{ 'What will be downloaded'|t('alt-monitor') }}</h2>
+            <table class="data fullwidth altmonitor-services">
+                <thead>
+                    <tr>
+                        <th scope="col">{{ 'File'|t('alt-monitor') }}</th>
+                        <th scope="col">{{ 'Downloaded from'|t('alt-monitor') }}</th>
+                        <th scope="col">{{ 'Size'|t('alt-monitor') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for service in services %}
+                        <tr>
+                            <td>{{ service.what }}</td>
+                            <td><code>{{ service.host }}</code></td>
+                            <td>{{ 'about {size} MB'|t('alt-monitor', {size: service.megabytes}) }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <th scope="row" colspan="2">{{ 'Total, once per browser'|t('alt-monitor') }}</th>
+                        <th>{{ 'about {size} MB'|t('alt-monitor', {size: totalMegabytes}) }}</th>
+                    </tr>
+                </tfoot>
+            </table>
+            <p class="light">{{ 'On a fast connection this takes about a minute. Afterwards the model starts in a second or two, and each image takes about 10 seconds to describe.'|t('alt-monitor') }}</p>
+        </section>
+
+        <section class="altmonitor-info" aria-labelledby="altmonitor-privacy">
+            <h2 id="altmonitor-privacy">{{ 'Your privacy (GDPR)'|t('alt-monitor') }}</h2>
+            <dl class="altmonitor-facts">
+                <div>
+                    <dt>{{ 'Your images stay with you'|t('alt-monitor') }}</dt>
+                    <dd>{{ 'Images go only from this Craft site to your browser, and are described on your device. They are never sent to the download services or to any AI company.'|t('alt-monitor') }}</dd>
+                </div>
+                <div>
+                    <dt>{{ 'What the download services see'|t('alt-monitor') }}</dt>
+                    <dd>
+                        {% if externalHosts|length %}
+                            {{ 'As with any download, {hosts} receive your IP address, your browser type and the time of the download. No cookies, account details, images or alt text are sent to them. These services may process data outside the EU.'|t('alt-monitor', {hosts: externalHosts|join(', ')}) }}
+                            {% set policies = services|filter(service => service.external and service.privacyUrl) %}
+                            {% if policies|length %}
+                                {{ 'Privacy policies:'|t('alt-monitor') }}
+                                {% for service in policies %}<a href="{{ service.privacyUrl }}" target="_blank" rel="noopener noreferrer">{{ service.host }}</a>{{ not loop.last ? ', ' }}{% endfor %}.
+                            {% endif %}
+                        {% else %}
+                            {{ 'This site hosts the model files itself, so no other service is contacted.'|t('alt-monitor') }}
+                        {% endif %}
+                    </dd>
+                </div>
+                <div>
+                    <dt>{{ 'Where it is kept'|t('alt-monitor') }}</dt>
+                    <dd>{{ 'In this browser’s storage for this site, on this device only. It isn’t stored on the server or shared with other users, and AltMonitor doesn’t record who downloaded it.'|t('alt-monitor') }}</dd>
+                </div>
+                <div>
+                    <dt>{{ 'How to remove it'|t('alt-monitor') }}</dt>
+                    <dd>{{ 'Use “Remove from this browser” on this page, or clear this site’s data in your browser settings.'|t('alt-monitor') }}</dd>
+                </div>
+                <div>
+                    <dt>{{ 'What the model can get wrong'|t('alt-monitor') }}</dt>
+                    <dd>{{ 'It writes short, plain descriptions. It doesn’t recognise people, brands or places by name, and can be wrong. Every suggestion waits for a person to approve it.'|t('alt-monitor') }}</dd>
+                </div>
+            </dl>
+            {% if externalHosts|length and currentUser.admin %}
+                <p class="light">{{ 'For site owners: if your organisation must avoid these services, host the model files on your own server and set browserModelHost and browserWasmPath in config/alt-monitor.php (see the README). You may want to mention this download in your privacy notice.'|t('alt-monitor') }}</p>
+            {% endif %}
+        </section>
+
+        <section class="altmonitor-info" aria-labelledby="altmonitor-needs">
+            <h2 id="altmonitor-needs">{{ 'What you need'|t('alt-monitor') }}</h2>
+            <ul class="bullets">
+                <li>{{ 'A current version of Chrome, Edge, Firefox or Safari on a computer.'|t('alt-monitor') }}</li>
+                <li>{{ 'About {size} MB of data. Avoid mobile data or metered connections.'|t('alt-monitor', {size: totalMegabytes}) }}</li>
+                <li>{{ 'About 1 GB of free memory while images are being described.'|t('alt-monitor') }}</li>
+            </ul>
+            <p class="warning with-icon" data-metered hidden>{{ 'Your browser says it is on a metered or data-saving connection. Consider downloading later on Wi-Fi.'|t('alt-monitor') }}</p>
+            <p class="warning with-icon" data-low-storage hidden>{{ 'Your browser may not have enough free storage for the model. Free some disk space first.'|t('alt-monitor') }}</p>
+        </section>
+
+    </div>
+    <noscript><p class="warning with-icon">{{ 'The image model runs in your browser and needs JavaScript.'|t('alt-monitor') }}</p></noscript>
+{% endblock %}
+
+{% block details %}
+    {% set totalMegabytes = services|reduce((sum, service) => sum + service.megabytes, 0) %}
+    <dl class="meta altmonitor-glance" aria-label="{{ 'At a glance'|t('alt-monitor') }}">
+        <div class="data"><dt class="heading">{{ 'Cost'|t('alt-monitor') }}</dt><dd class="value">{{ 'Free'|t('alt-monitor') }}</dd></div>
+        <div class="data"><dt class="heading">{{ 'Download'|t('alt-monitor') }}</dt><dd class="value">{{ 'about {size} MB, once'|t('alt-monitor', {size: totalMegabytes}) }}</dd></div>
+        <div class="data"><dt class="heading">{{ 'Runs on'|t('alt-monitor') }}</dt><dd class="value">{{ 'Your browser'|t('alt-monitor') }}</dd></div>
+        <div class="data"><dt class="heading">{{ 'Images sent out'|t('alt-monitor') }}</dt><dd class="value">{{ 'None'|t('alt-monitor') }}</dd></div>
+        <div class="data"><dt class="heading">{{ 'Model'|t('alt-monitor') }}</dt><dd class="value">{{ modelName }}</dd></div>
+        <div class="data"><dt class="heading">{{ 'Licences'|t('alt-monitor') }}</dt><dd class="value">{{ 'MIT (model), Apache 2.0 (Transformers.js)'|t('alt-monitor') }}</dd></div>
+    </dl>
+{% endblock %}

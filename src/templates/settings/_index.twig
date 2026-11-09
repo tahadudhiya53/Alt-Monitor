@@ -1,0 +1,89 @@
+{% extends '_layouts/cp' %}
+
+{% set title = 'Settings'|t('alt-monitor') %}
+{% set selectedSubnavItem = 'settings' %}
+{% set fullPageForm = not readOnly %}
+{% do view.registerAssetBundle('Tahadudhiya\\AltMonitor\\web\\assets\\cp\\CpAsset') %}
+{% do view.registerTranslations('alt-monitor', ['Testing…', 'The test could not be run.']) %}
+
+{% block content %}
+    {% import '_includes/forms' as forms %}
+    {% set overrideNote = 'Set in config/alt-monitor.php, which overrides this.'|t('alt-monitor') %}
+
+    <div class="altmonitor-settings readable">
+    {% if readOnly %}
+        <p class="warning with-icon">{{ 'Admin changes are not allowed in this environment, so settings can only be viewed here.'|t('alt-monitor') }}</p>
+    {% else %}
+        {{ actionInput('alt-monitor/settings/save') }}
+        {{ redirectInput('alt-monitor/settings') }}
+    {% endif %}
+
+    <h2>{{ 'Image descriptions'|t('alt-monitor') }}</h2>
+    <div id="altmonitor-ai-info">
+        {% if settings.aiEnabled %}
+            <p>{{ 'Suggestions are described from each image on the server, in the queue, by “{model}” through Ollama at {endpoint}. This is set in config/alt-monitor.php.'|t('alt-monitor', {model: settings.ollamaModel, endpoint: settings.endpoint()}) }}</p>
+            <div class="field">
+                <button type="button" class="btn" data-altmonitor-test aria-controls="altmonitor-test-result">{{ 'Test connection'|t('alt-monitor') }}</button>
+                <p id="altmonitor-test-result" role="status" aria-live="polite"></p>
+            </div>
+        {% else %}
+            <p>{{ 'A free image model runs in each user’s browser. No API key or account is needed.'|t('alt-monitor') }}
+                <a href="{{ url('alt-monitor/image-model') }}">{{ 'About the image model'|t('alt-monitor') }}</a></p>
+        {% endif %}
+    </div>
+
+    <hr>
+    <h2>{{ 'Scanning'|t('alt-monitor') }}</h2>
+
+    {{ forms.textField({
+        label: 'Scan batch size'|t('alt-monitor'),
+        instructions: 'Images read per queue job. Lower it if scan jobs run out of time or memory.'|t('alt-monitor'),
+        id: 'scanBatchSize',
+        name: 'settings[scanBatchSize]',
+        type: 'number',
+        min: 10,
+        max: 1000,
+        size: 5,
+        value: settings.scanBatchSize,
+        disabled: readOnly,
+        warning: 'scanBatchSize' in overrides ? overrideNote : null,
+        errors: settings.getErrors('scanBatchSize'),
+    }) }}
+
+    {{ forms.lightswitchField({
+        label: 'Audit images when they are saved'|t('alt-monitor'),
+        instructions: 'Keeps an image’s audit current between scans.'|t('alt-monitor'),
+        id: 'auditOnSave',
+        name: 'settings[auditOnSave]',
+        on: settings.auditOnSave,
+        disabled: readOnly,
+        warning: 'auditOnSave' in overrides ? overrideNote : null,
+        errors: settings.getErrors('auditOnSave'),
+    }) }}
+
+    {{ forms.lightswitchField({
+        label: 'Scan content usage after a full scan'|t('alt-monitor'),
+        id: 'scanUsageAfterFullScan',
+        name: 'settings[scanUsageAfterFullScan]',
+        on: settings.scanUsageAfterFullScan,
+        disabled: readOnly,
+        warning: 'scanUsageAfterFullScan' in overrides ? overrideNote : null,
+        errors: settings.getErrors('scanUsageAfterFullScan'),
+    }) }}
+
+    <hr>
+    <h2>{{ 'Rules'|t('alt-monitor') }}</h2>
+
+    {{ forms.textareaField({
+        label: 'Additional generic terms'|t('alt-monitor'),
+        instructions: 'Words or phrases that, as the whole alt text, count as generic. One per line.'|t('alt-monitor'),
+        id: 'additionalGenericTerms',
+        name: 'settings[additionalGenericTerms]',
+        value: settings.additionalGenericTerms|join("\n"),
+        rows: 4,
+        disabled: readOnly,
+        warning: 'additionalGenericTerms' in overrides ? overrideNote : null,
+        errors: settings.getErrors('additionalGenericTerms'),
+    }) }}
+    </div>
+{% endblock %}

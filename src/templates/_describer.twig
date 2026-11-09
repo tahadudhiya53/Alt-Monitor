@@ -1,0 +1,47 @@
+{#
+ # The popup the browser's image model reports into while it describes images: the image being
+ # described, its new description, progress and Stop. Included
+ # where images can be described; cp.js opens it (a native <dialog>) when describing starts.
+ #}
+{% do view.registerTranslations('alt-monitor', [
+    'Loading the image model…',
+    'Starting the image model…',
+    'Stopping…',
+    'Describing image {done, number} of {total, number}…',
+    'Describing image {done, number}…',
+    'Image {number, number}',
+    'That one is already used. Looking for a different description (try {attempt, number})…',
+    'No new description found; it would repeat the current one.',
+    'Could not be described.',
+    'Done: {described, number} new, {same, number} unchanged, {failed, number} could not be described.',
+    'Stopped: {described, number} new, {same, number} unchanged, {failed, number} could not be described.',
+    'The image model could not be loaded: {message}',
+    'Describing stopped because of an error: {message}',
+    'Select at least one image.',
+    'This browser can’t run the image model. Use a current version of Chrome, Edge, Firefox or Safari.',
+]) %}
+<dialog class="altmonitor-dialog" data-altmonitor-describer data-config="{{ describer|json_encode }}" aria-labelledby="altmonitor-dialog-title">
+    <div class="altmonitor-dialog-head">
+        <h2 id="altmonitor-dialog-title">{{ 'Describing images'|t('alt-monitor') }}</h2>
+        <p class="light">{{ 'The AI looks at each image in your browser. Nothing is saved until you approve it.'|t('alt-monitor') }}</p>
+    </div>
+    <div class="altmonitor-dialog-body">
+        <div class="altmonitor-dialog-image">
+            <img data-preview alt="" hidden>
+        </div>
+        <div class="altmonitor-dialog-main">
+            <p class="altmonitor-dialog-name" data-name></p>
+            <p class="altmonitor-dialog-result" data-result hidden></p>
+            <div class="altmonitor-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="{{ 'Image description progress'|t('alt-monitor') }}">
+                <div data-bar style="width: 0"></div>
+            </div>
+            <p class="altmonitor-dialog-status" data-status role="status" aria-live="polite"></p>
+        </div>
+    </div>
+    <div class="altmonitor-dialog-foot">
+        <a class="btn submit" data-review href="{{ url('alt-monitor/suggestions') }}" hidden>{{ 'Review suggestions'|t('alt-monitor') }}</a>
+        <button type="button" class="btn" data-close hidden>{{ 'Close'|t('alt-monitor') }}</button>
+        <button type="button" class="btn" data-stop>{{ 'Stop'|t('alt-monitor') }}</button>
+    </div>
+</dialog>
+<noscript><p class="warning with-icon">{{ 'Describing images needs JavaScript.'|t('alt-monitor') }}</p></noscript>

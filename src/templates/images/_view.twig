@@ -1,0 +1,177 @@
+{% extends '_layouts/cp' %}
+
+{#
+ # One image: the picture beside its alt text, with the suggestion (if any) right above the field,
+ # usable in one click. Facts about the asset and where it is used come after.
+ #}
+{% set title = item.asset.filename %}
+{% set selectedSubnavItem = 'images' %}
+{% set crumbs = [{label: 'Images'|t('alt-monitor'), url: url('alt-monitor/images')}] %}
+{% do view.registerAssetBundle('Tahadudhiya\\AltMonitor\\web\\assets\\cp\\CpAsset') %}
+
+{% block content %}
+    {% import 'alt-monitor/_macros' as macros %}
+    {% set asset = item.asset %}
+    {% set editable = canEditAlt and item.canEdit %}
+    {% set suggestion = item.suggestion %}
+    {% set pending = item.hasNewSuggestion() %}
+
+    <div class="altmonitor-image-layout">
+        <div class="altmonitor-image-side">
+            <div class="altmonitor-preview">{{ asset.getThumbHtml(480)|raw }}</div>
+            <dl class="meta altmonitor-facts-small">
+                {% if asset.title and asset.title != asset.filename %}<div class="data"><dt class="heading">{{ 'Title'|t('app') }}</dt><dd class="value">{{ asset.title }}</dd></div>{% endif %}
+                <div class="data"><dt class="heading">{{ 'Volume'|t('app') }}</dt><dd class="value">{{ asset.volume.name|t('site') }}</dd></div>
+                {% if craft.app.isMultiSite %}<div class="data"><dt class="heading">{{ 'Site'|t('app') }}</dt><dd class="value">{{ craft.app.sites.getSiteById(item.siteId).name|t('site') }}</dd></div>{% endif %}
+                <div class="data"><dt class="heading">{{ 'Last scanned'|t('alt-monitor') }}</dt><dd class="value">{{ item.dateScanned|datetime('short') }}</dd></div>
+                {% if item.dateAltSaved %}<div class="data"><dt class="heading">{{ 'Alt text saved here'|t('alt-monitor') }}</dt><dd class="value">{{ item.dateAltSaved|datetime('short') }}</dd></div>{% endif %}
+            </dl>
+            {% if asset.getCpEditUrl() %}<p><a href="{{ asset.getCpEditUrl() }}" class="go">{{ 'Edit the asset'|t('alt-monitor') }}</a></p>{% endif %}
+        </div>
+
+        <div class="altmonitor-image-main">
+            <div class="altmonitor-alt-status">
+                {{ macros.altStatus(item.status) }}
+                {% if item.status.value != 'missing' %}{% for issue in item.issues %}<span class="light">{{ issue.label() }}</span>{% endfor %}{% endif %}
+            </div>
+
+            {# ---------- The suggestion, ready to use ---------- #}
+            {% if pending %}
+                <div class="altmonitor-suggest altmonitor-suggest--large" id="altmonitor-suggestion">
+                    <span class="altmonitor-suggest-label">{{ 'Suggestion'|t('alt-monitor') }}</span>
+                    <p class="altmonitor-suggest-text">{{ suggestion.suggestedAlt }}</p>
+                    {% if suggestion.canApprove() and canApprove and item.canEdit %}
+                        <div class="flex">
+                            <form method="post" id="altmonitor-approve-form">
+                                {{ csrfInput() }}
+                                {{ actionInput('alt-monitor/suggestions/approve') }}
+                                {{ hiddenInput('id', suggestion.id) }}
+                                {{ hiddenInput('alt', suggestion.suggestedAlt) }}
+                                <button type="submit" class="btn submit">{{ 'Use this'|t('alt-monitor') }}</button>
+                            </form>
+                            <form method="post">
+                                {{ csrfInput() }}
+                                {{ actionInput('alt-monitor/suggestions/reject') }}
+                                {{ hiddenInput('id', suggestion.id) }}
+                                <button type="submit" class="btn">{{ 'Dismiss'|t('alt-monitor') }}</button>
+                            </form>
+                        </div>
+                    {% endif %}
+                    <p class="smalltext light">
+                        {{ 'Check it matches the image. You can change the text after using it.'|t('alt-monitor') }}
+                        {{ suggestion.source.label() }}{% if suggestion.basisLabel() %} · {{ suggestion.basisLabel() }}{% endif %}
+                    </p>
+                </div>
+            {% elseif suggestion and suggestion.status.value != 'pending' %}
+                <p class="smalltext light" id="altmonitor-suggestion">
+                    {{ macros.suggestionStatus(suggestion) }}
+                    {{ suggestion.source.label() }}{% if suggestion.dateGenerated %} · {{ suggestion.dateGenerated|datetime('short') }}{% endif %}
+                    {% if suggestion.error %}<br>{{ suggestion.error }}{% endif %}
+                </p>
+            {% endif %}
+
+            {# ---------- The alt text itself ---------- #}
+            {% if editable %}
+                <form method="post" id="altmonitor-alt-form">
+                    {{ csrfInput() }}
+                    {{ actionInput('alt-monitor/assets/save') }}
+                    {{ hiddenInput('assetId', asset.id) }}
+                    {{ hiddenInput('siteId', item.siteId) }}
+                    <div class="field">
+                        <div class="heading"><label for="alt">{{ 'Alt text'|t('alt-monitor') }}</label></div>
+                        <div class="instructions"><p>{{ 'Describe what the image shows that matters on the page.'|t('alt-monitor') }}</p></div>
+                        <div class="input"><textarea id="alt" name="alt" class="text fullwidth" rows="3" maxlength="1000">{{ asset.alt }}</textarea></div>
+                    </div>
+                    <div class="flex flex-wrap">
+                        <button type="submit" class="btn submit">{{ 'Save alt text'|t('alt-monitor') }}</button>
+                        {% if describer %}
+                            <button type="button" class="btn" data-describe-one="{{ asset.id }}-{{ item.siteId }}">
+                                {{ suggestion ? 'Describe the image again'|t('alt-monitor') : 'Describe the image'|t('alt-monitor') }}
+                            </button>
+                        {% endif %}
+                    </div>
+                </form>
+            {% else %}
+                <h2>{{ 'Alt text'|t('alt-monitor') }}</h2>
+                <p>{{ asset.alt ?: 'None'|t('alt-monitor') }}</p>
+                {% if describer %}
+                    <button type="button" class="btn" data-describe-one="{{ asset.id }}-{{ item.siteId }}">
+                        {{ suggestion ? 'Describe the image again'|t('alt-monitor') : 'Describe the image'|t('alt-monitor') }}
+                    </button>
+                {% endif %}
+            {% endif %}
+
+            {% if describer %}
+                {% include 'alt-monitor/_describer' %}
+            {% elseif canGenerate and serverAi and item.canEdit %}
+                <form method="post" id="altmonitor-regenerate-form">
+                    {{ csrfInput() }}
+                    {{ actionInput('alt-monitor/suggestions/regenerate') }}
+                    {{ hiddenInput('assetId', asset.id) }}
+                    {{ hiddenInput('siteId', item.siteId) }}
+                    <button type="submit" class="btn">
+                        {{ suggestion ? 'Generate a new suggestion'|t('alt-monitor') : 'Generate a suggestion'|t('alt-monitor') }}
+                    </button>
+                </form>
+            {% endif %}
+
+            {% if editable %}
+                <form method="post" id="altmonitor-decorative-form" class="altmonitor-decorative">
+                    {{ csrfInput() }}
+                    {{ actionInput('alt-monitor/assets/decorative') }}
+                    {{ hiddenInput('assetId', asset.id) }}
+                    {{ hiddenInput('siteId', item.siteId) }}
+                    {{ hiddenInput('decorative', item.decorative ? '' : '1') }}
+                    {% if item.decorative %}
+                        <p>
+                            {{ 'Marked as decorative: screen readers skip it, so no alt text is needed.'|t('alt-monitor') }}
+                            <button type="submit" class="btn small">{{ 'Unmark as decorative'|t('alt-monitor') }}</button>
+                        </p>
+                    {% else %}
+                        <p class="light">
+                            {{ 'Just decoration, like a divider or background?'|t('alt-monitor') }}
+                            <button type="submit" class="btn small">{{ 'Mark as decorative'|t('alt-monitor') }}</button>
+                        </p>
+                    {% endif %}
+                </form>
+            {% endif %}
+        </div>
+    </div>
+
+    <hr>
+    <h2 id="usage">{{ 'Where it is used'|t('alt-monitor') }}</h2>
+    {% if references %}
+        <table class="data fullwidth" id="altmonitor-usage">
+            <thead>
+                <tr>
+                    <th scope="col">{{ 'Content'|t('alt-monitor') }}</th>
+                    <th scope="col">{{ 'Type'|t('alt-monitor') }}</th>
+                    <th scope="col">{{ 'How'|t('alt-monitor') }}</th>
+                    <th scope="col">{{ 'Field'|t('alt-monitor') }}</th>
+                    {% if craft.app.isMultiSite %}<th scope="col">{{ 'Site'|t('app') }}</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for reference in references %}
+                    <tr>
+                        <th scope="row">
+                            {% if reference.cpEditUrl %}<a href="{{ reference.cpEditUrl }}">{{ reference.label }}</a>{% else %}{{ reference.label }}{% endif %}
+                            {% if reference.nestedIn %}<div class="smalltext light">{{ 'In nested content: {label}'|t('alt-monitor', {label: reference.nestedIn}) }}</div>{% endif %}
+                        </th>
+                        <td>{{ reference.elementType }}</td>
+                        <td>{{ reference.kind.label() }}</td>
+                        <td>{{ reference.fieldName ? reference.fieldName|t('site') : '—' }}</td>
+                        {% if craft.app.isMultiSite %}<td>{{ reference.siteName ? reference.siteName|t('site') : 'All sites'|t('alt-monitor') }}</td>{% endif %}
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p class="light">
+            {{ item.usage.value == 'unknown'
+                ? 'Content usage has not been scanned yet.'|t('alt-monitor')
+                : 'No content references were found.'|t('alt-monitor') }}
+        </p>
+    {% endif %}
+    <p class="light smalltext">{{ 'Only Craft relations and images embedded in rich text are found. Templates, custom code and other systems may use the image too.'|t('alt-monitor') }}</p>
+{% endblock %}

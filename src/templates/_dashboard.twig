@@ -1,0 +1,199 @@
+{% extends '_layouts/cp' %}
+
+{#
+ # The dashboard leads with what to do next: three steps (scan, describe, review), each with one
+ # button. The numbers follow, and the detail most people never need sits in a collapsed section.
+ #}
+{% set title = 'AltMonitor'|t('alt-monitor') %}
+{% set selectedSubnavItem = 'dashboard' %}
+{% do view.registerAssetBundle('Tahadudhiya\\AltMonitor\\web\\assets\\cp\\CpAsset') %}
+{% do view.registerTranslations('alt-monitor', [
+    '{type}: {scanned, number} of {total, number} ({progress}%)',
+    'Progress could not be loaded. Reload the page to try again.',
+]) %}
+
+{% block actionButton %}
+    {% if canScan %}
+        <form method="post" class="flex" id="altmonitor-scan-actions">
+            {{ csrfInput() }}
+            {{ actionInput('alt-monitor/scan/start') }}
+            {% if lastScan %}
+                <button type="submit" class="btn" name="type" value="incremental" {{ activeScan ? 'disabled' }}>{{ 'Scan for changes'|t('alt-monitor') }}</button>
+            {% endif %}
+        </form>
+    {% endif %}
+{% endblock %}
+
+{% macro card(value, label, url, color = null) %}
+    {% set content %}
+        <span class="altmonitor-card-value">{{ value }}</span>
+        <span class="altmonitor-card-label">{% if color %}<span class="status {{ color }}" aria-hidden="true"></span>{% endif %}{{ label }}</span>
+    {% endset %}
+    {% if url %}
+        <a class="altmonitor-card" href="{{ url }}">{{ content }}</a>
+    {% else %}
+        <div class="altmonitor-card">{{ content }}</div>
+    {% endif %}
+{% endmacro %}
+
+{% block content %}
+    {% set needAlt = stats.missing + stats.weak %}
+    {% set scanned = stats.audited > 0 %}
+
+    {% if activeScan %}
+        <div class="altmonitor-panel" data-altmonitor-scan id="altmonitor-active-scan" aria-live="polite">
+            <h2>{{ 'Scanning your images…'|t('alt-monitor') }}</h2>
+            <div class="altmonitor-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ (activeScan.progress() * 100)|round }}" aria-label="{{ 'Scan progress'|t('alt-monitor') }}">
+                <div data-progress-bar style="width: {{ (activeScan.progress() * 100)|round }}%"></div>
+            </div>
+            <p class="light" data-progress-text>
+                {{ activeScan.status.value == 'queued'
+                    ? '{type} is waiting for the queue.'|t('alt-monitor', {type: activeScan.type.label()})
+                    : '{type}: {scanned, number} of {total, number} ({progress}%)'|t('alt-monitor', {type: activeScan.type.label(), scanned: activeScan.scannedAssets, total: activeScan.totalAssets, progress: (activeScan.progress() * 100)|round}) }}
+            </p>
+            <p class="light">{{ 'You can leave this page; the scan keeps running.'|t('alt-monitor') }}</p>
+        </div>
+    {% elseif latestScan and latestScan.status.value == 'failed' %}
+        <p class="error with-icon" id="altmonitor-failed-scan">
+            {{ '{type} failed: {error}'|t('alt-monitor', {type: latestScan.type.label(), error: latestScan.error ?? ''}) }}
+        </p>
+    {% endif %}
+
+    {# ---------- What to do next ---------- #}
+    <ol class="altmonitor-steps" aria-label="{{ 'How it works'|t('alt-monitor') }}">
+        <li class="altmonitor-step {{ scanned ? 'is-done' : 'is-current' }}">
+            <span class="altmonitor-step-number" aria-hidden="true">1</span>
+            <div class="altmonitor-step-body">
+                <h2>{{ 'Find images'|t('alt-monitor') }}</h2>
+                {% if scanned %}
+                    <p>{{ '{count, number} {count, plural, =1{image} other{images}} checked.'|t('alt-monitor', {count: stats.totalImages}) }}</p>
+                {% else %}
+                    <p>{{ 'Check every image for missing or weak alt text.'|t('alt-monitor') }}</p>
+                    {% if canScan and not activeScan %}
+                        <form method="post">
+                            {{ csrfInput() }}
+                            {{ actionInput('alt-monitor/scan/start') }}
+                            <button type="submit" class="btn submit" name="type" value="full">{{ 'Scan all images'|t('alt-monitor') }}</button>
+                        </form>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </li>
+
+        <li class="altmonitor-step {{ not scanned ? '' : (needAlt == 0 ? 'is-done' : (stats.pendingSuggestions == 0 ? 'is-current')) }}">
+            <span class="altmonitor-step-number" aria-hidden="true">2</span>
+            <div class="altmonitor-step-body">
+                <h2>{{ 'Describe images'|t('alt-monitor') }}</h2>
+                {% if not scanned %}
+                    <p>{{ 'AI looks at each image and suggests alt text.'|t('alt-monitor') }}</p>
+                {% elseif needAlt > 0 %}
+                    <p>{{ '{count, number} {count, plural, =1{image needs} other{images need}} alt text.'|t('alt-monitor', {count: needAlt}) }}</p>
+                    {% if describer %}
+                        <div id="altmonitor-describe-all">
+                            <button type="button" class="btn submit" data-describe-all>{{ 'Describe them for me'|t('alt-monitor') }}</button>
+                            {% include 'alt-monitor/_describer' %}
+                        </div>
+                    {% elseif canGenerate and serverAi %}
+                        <form method="post" id="altmonitor-generate-all">
+                            {{ csrfInput() }}
+                            {{ actionInput('alt-monitor/suggestions/generate-all') }}
+                            {{ redirectInput('alt-monitor') }}
+                            <button type="submit" class="btn submit">{{ 'Describe them for me'|t('alt-monitor') }}</button>
+                        </form>
+                    {% endif %}
+                    <a class="altmonitor-step-link" href="{{ url('alt-monitor/images', {status: stats.missing > 0 ? 'missing' : 'weak'}) }}">{{ 'Or write it yourself'|t('alt-monitor') }}</a>
+                {% else %}
+                    <p>{{ 'Every image has alt text.'|t('alt-monitor') }}</p>
+                {% endif %}
+            </div>
+        </li>
+
+        <li class="altmonitor-step {{ stats.pendingSuggestions > 0 ? 'is-current' }}">
+            <span class="altmonitor-step-number" aria-hidden="true">3</span>
+            <div class="altmonitor-step-body">
+                <h2>{{ 'Check and approve'|t('alt-monitor') }}</h2>
+                {% if stats.pendingSuggestions > 0 %}
+                    <p>{{ '{count, number} {count, plural, =1{suggestion is} other{suggestions are}} waiting for you.'|t('alt-monitor', {count: stats.pendingSuggestions}) }}</p>
+                    <a class="btn submit" href="{{ url('alt-monitor/suggestions') }}">{{ 'Review suggestions'|t('alt-monitor') }}</a>
+                {% else %}
+                    <p>{{ 'Nothing is saved until you approve it.'|t('alt-monitor') }}</p>
+                {% endif %}
+            </div>
+        </li>
+    </ol>
+
+    {% if scanned %}
+        {# ---------- Where things stand ---------- #}
+        {% set coverage = stats.coverage() %}
+        <div class="altmonitor-panel">
+            <div class="altmonitor-coverage">
+                <h2>{{ 'Alt text coverage'|t('alt-monitor') }}</h2>
+                <strong class="altmonitor-coverage-value">{{ coverage is not null ? coverage ~ '%' : '—' }}</strong>
+            </div>
+            <div class="altmonitor-progress altmonitor-progress--good" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ coverage ?? 0 }}" aria-label="{{ 'Alt text coverage'|t('alt-monitor') }}">
+                <div style="width: {{ coverage ?? 0 }}%"></div>
+            </div>
+            <div class="altmonitor-cards" id="altmonitor-stats">
+                {{ _self.card(stats.missing|number, 'Missing alt text'|t('alt-monitor'), url('alt-monitor/images', {status: 'missing'}), 'red') }}
+                {{ _self.card(stats.weak|number, 'Weak or generic'|t('alt-monitor'), url('alt-monitor/images', {status: 'weak'}), 'orange') }}
+                {{ _self.card(stats.review|number, 'Needs review'|t('alt-monitor'), url('alt-monitor/images', {status: 'review'}), 'blue') }}
+                {{ _self.card(stats.good|number, 'Good'|t('alt-monitor'), url('alt-monitor/images', {status: 'good'}), 'green') }}
+            </div>
+        </div>
+
+        {# ---------- Details few people need ---------- #}
+        <details class="altmonitor-details" id="altmonitor-more">
+            <summary>{{ 'More details'|t('alt-monitor') }}</summary>
+            <div class="altmonitor-cards">
+                {{ _self.card(stats.totalImages|number, 'Image assets'|t('alt-monitor'), null) }}
+                {{ _self.card(stats.updated|number, 'Images updated here'|t('alt-monitor'), null) }}
+                {{ _self.card(stats.decorative|number, 'Marked decorative'|t('alt-monitor'), null) }}
+                {{ _self.card(stats.used|number, 'Used in content'|t('alt-monitor'), url('alt-monitor/images', {usage: 'used'})) }}
+                {{ _self.card(stats.unused|number, 'No references found'|t('alt-monitor'), url('alt-monitor/images', {usage: 'unused'})) }}
+                {{ _self.card(stats.usageUnknown|number, 'Usage not scanned'|t('alt-monitor'), url('alt-monitor/images', {usage: 'unknown'})) }}
+            </div>
+            <dl class="meta" id="altmonitor-scan-info">
+                <div class="data">
+                    <dt class="heading">{{ 'Last asset scan'|t('alt-monitor') }}</dt>
+                    <dd class="value">
+                        {% if lastScan %}
+                            {{ '{type}, completed {date}: {scanned, number} {scanned, plural, =1{image} other{images}} read.'|t('alt-monitor', {type: lastScan.type.label(), date: lastScan.completedAt|datetime('short'), scanned: lastScan.scannedAssets}) }}
+                        {% else %}
+                            {{ 'Never'|t('alt-monitor') }}
+                        {% endif %}
+                    </dd>
+                </div>
+                <div class="data">
+                    <dt class="heading">{{ 'Last usage scan'|t('alt-monitor') }}</dt>
+                    <dd class="value">{{ lastUsageScan ? lastUsageScan.completedAt|datetime('short') : 'Never'|t('alt-monitor') }}</dd>
+                </div>
+                <div class="data">
+                    <dt class="heading">{{ 'Suggestions'|t('alt-monitor') }}</dt>
+                    <dd class="value">
+                        {{ serverAi
+                            ? 'Described from each image on the server by “{model}” through Ollama.'|t('alt-monitor', {model: aiModel})
+                            : 'Described from each image by {model}, free, in your browser.'|t('alt-monitor', {model: aiModel}) }}
+                        {% if describer %}<a href="{{ url('alt-monitor/image-model') }}">{{ 'About the image model'|t('alt-monitor') }}</a>{% endif %}
+                    </dd>
+                </div>
+            </dl>
+            {% if canScan %}
+                <form method="post" class="flex flex-wrap altmonitor-other-scans" id="altmonitor-other-scans">
+                    {{ csrfInput() }}
+                    {{ actionInput('alt-monitor/scan/start') }}
+                    <button type="submit" class="btn" name="type" value="full" {{ activeScan ? 'disabled' }}>{{ 'Full scan'|t('alt-monitor') }}</button>
+                    <span class="light">{{ 'Check every image again.'|t('alt-monitor') }}</span>
+                    <button type="submit" class="btn" name="type" value="usage" {{ activeScan ? 'disabled' }}>{{ 'Scan usage'|t('alt-monitor') }}</button>
+                    <span class="light">{{ 'Find where each image is used in content.'|t('alt-monitor') }}</span>
+                </form>
+            {% endif %}
+            <p class="light">
+                {{ 'Usage counts Craft relations (Assets fields, including in Matrix and other nested content and global sets) and images embedded in rich text. Images used only in templates, custom code or other systems are not found, so “no references found” does not prove an image is unused.'|t('alt-monitor') }}
+            </p>
+            <p class="light">
+                {{ 'Statuses come from rule-based checks. They point at likely problems; they don’t prove alt text is accurate or that pages meet WCAG.'|t('alt-monitor') }}
+                {% if stats.audited > stats.totalImages %}{{ 'Images in volumes with translatable alt text are audited once per site.'|t('alt-monitor') }}{% endif %}
+            </p>
+        </details>
+    {% endif %}
+{% endblock %}

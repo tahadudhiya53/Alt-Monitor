@@ -1,0 +1,1369 @@
+.altmonitor-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: var(--m, 14px);
+    margin-bottom: var(--xl, 24px);
+}
+
+.altmonitor-card {
+    display: block;
+    padding: 14px 16px;
+    border-radius: var(--large-border-radius, 5px);
+    background: var(--pane-bg, var(--gray-050, #f3f7fc));
+    box-shadow: var(--pane-shadow, 0 0 0 1px var(--hairline-color, rgba(51, 64, 77, 0.1)));
+    color: inherit;
+    text-decoration: none;
+}
+
+a.altmonitor-card:hover,
+a.altmonitor-card:focus-visible {
+    background: var(--button-bg--hover, var(--gray-100, #e4edf6));
+    text-decoration: none;
+}
+
+.altmonitor-card-value {
+    display: block;
+    font-size: 26px;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.altmonitor-card-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--medium-text-color, #606d7b);
+}
+
+.altmonitor-progress {
+    height: 8px;
+    border-radius: 4px;
+    background: var(--gray-100, #e4edf6);
+    overflow: hidden;
+    margin: 6px 0;
+}
+
+.altmonitor-progress > div {
+    height: 100%;
+    background: var(--link-color, #2563eb);
+    transition: width 0.3s;
+}
+
+.altmonitor-thumb img {
+    display: block;
+    max-width: 64px;
+    max-height: 64px;
+    border-radius: 3px;
+}
+
+.altmonitor-preview img {
+    display: block;
+    max-width: 100%;
+    max-height: 360px;
+    border-radius: var(--large-border-radius, 5px);
+}
+
+.altmonitor-preview {
+    display: grid;
+    min-height: 160px;
+    place-items: center;
+    padding: 12px;
+    border-radius: var(--large-border-radius, 5px);
+    background: var(--pane-bg, var(--gray-050, #f3f7fc));
+    box-shadow: var(--pane-shadow, 0 0 0 1px var(--hairline-color, rgba(51, 64, 77, 0.1)));
+}
+
+.altmonitor-alt-input {
+    min-width: 220px;
+}
+
+.altmonitor-table td {
+    vertical-align: top;
+}
+
+.altmonitor-bulk {
+    gap: 8px;
+    margin: var(--m, 14px) 0;
+}
+
+@media (max-width: 767px) {
+    .altmonitor-alt-input {
+        min-width: 160px;
+    }
+}
+
+/* The image model page */
+.altmonitor-model {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 16px;
+    width: 100%;
+    max-width: none;
+    align-items: start;
+}
+
+.altmonitor-model > .altmonitor-state--info,
+.altmonitor-model > div[aria-live],
+.altmonitor-model > .altmonitor-consent,
+.altmonitor-model > .altmonitor-details-heading,
+.altmonitor-model > section[aria-labelledby="altmonitor-privacy"] {
+    grid-column: 1 / -1;
+}
+
+.altmonitor-state {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: var(--xl, 24px);
+    padding: 18px 20px;
+    border-radius: var(--large-border-radius, 5px);
+    background: var(--pane-bg, var(--gray-050, #f3f7fc));
+    box-shadow: var(--pane-shadow, 0 0 0 1px var(--hairline-color, rgba(51, 64, 77, 0.1)));
+    border-inline-start: 4px solid var(--gray-300, #cdd8e4);
+}
+
+.altmonitor-state[hidden] {
+    display: none;
+}
+
+.altmonitor-state[data-model-state="checking"] {
+    flex-direction: row;
+    align-items: center;
+}
+
+.altmonitor-state h2,
+.altmonitor-state p {
+    margin: 0;
+}
+
+.altmonitor-state .flex {
+    margin-top: 6px;
+}
+
+.altmonitor-state > .btn {
+    align-self: flex-start;
+}
+
+.altmonitor-state--good {
+    border-inline-start-color: var(--success-color, #0d9f6e);
+}
+
+.altmonitor-state--info {
+    border-inline-start-color: var(--link-color, #2563eb);
+}
+
+.altmonitor-state--warning {
+    border-inline-start-color: var(--warning-color, #c75b00);
+}
+
+.altmonitor-state--error {
+    border-inline-start-color: var(--error-color, #cf1124);
+}
+
+.altmonitor-progress--large {
+    height: 12px;
+    border-radius: 6px;
+}
+
+.altmonitor-info {
+    min-width: 0;
+    margin-bottom: var(--m, 14px);
+    padding: 14px 16px;
+    border: 1px solid var(--hairline-color, rgba(51, 64, 77, 0.1));
+    border-radius: var(--large-border-radius, 5px);
+    background: var(--pane-bg, var(--white, #fff));
+    box-shadow: var(--pane-shadow, 0 0 0 1px var(--hairline-color, rgba(51, 64, 77, 0.1)));
+}
+
+.altmonitor-info > h2 {
+    margin-top: 0;
+    font-size: 18px;
+    line-height: 1.3;
+}
+
+.altmonitor-info > :last-child {
+    margin-bottom: 0;
+}
+
+.altmonitor-facts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 18px;
+}
+
+.altmonitor-services td:last-child,
+.altmonitor-services tfoot th:last-child {
+    white-space: nowrap;
+}
+
+.altmonitor-services code {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.altmonitor-facts > div {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--hairline-color, rgba(51, 64, 77, 0.1));
+}
+
+.altmonitor-facts > div:last-child {
+    border-bottom: 0;
+}
+
+.altmonitor-facts dt {
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+
+.altmonitor-facts dd {
+    margin: 0;
+    color: var(--medium-text-color, #606d7b);
+}
+
+.altmonitor-consent {
+    padding: 18px 20px;
+    border-radius: var(--large-border-radius, 5px);
+    background: var(--pane-bg, var(--gray-050, #f3f7fc));
+    box-shadow: var(--pane-shadow, 0 0 0 1px var(--hairline-color, rgba(51, 64, 77, 0.1)));
+}
+
+.altmonitor-consent[hidden] {
+    display: none;
+}
+
+.altmonitor-consent h2 {
+    margin-top: 0;
+}
+
+.altmonitor-consent .checkbox-wrapper label {
+    font-weight: 500;
+}
+
+.altmonitor-glance .value {
+    overflow-wrap: anywhere;
+    text-align: end;
+}
+
+/* ---------- Shared building blocks ---------- */
+.altmonitor-panel {
+    margin-bottom: var(--xl, 24px);
+    padding: 18px 20px;
+    border-radius: var(--large-border-radius, 5px);
+    background: var(--pane-bg, var(--gray-050, #f3f7fc));
+    box-shadow: var(--pane-shadow, 0 0 0 1px var(--hairline-color, rgba(51, 64, 77, 0.1)));
+}
+
+.altmonitor-panel h2 {
+    margin: 0 0 8px;
+}
+
+.altmonitor-progress--good > div {
+    background: var(--success-color, #0d9f6e);
+}
+
+.altmonitor-hint {
+    margin: 0 0 var(--l, 18px);
+    color: var(--medium-text-color, #606d7b);
+}
+
+/* Dashboard: three steps */
+.altmonitor-steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: var(--m, 14px);
+    margin: 0 0 var(--xl, 24px);
+    padding: 0;
+    list-style: none;
+}
+
+.altmonitor-step {
+    display: flex;
+    gap: 12px;
+    padding: 18px;
+    border-radius: var(--large-border-radius, 5px);
+    background: var(--pane-bg, var(--white, #fff));
+    box-shadow: var(--pane-shadow, 0 0 0 1px var(--hairline-color, rgba(51, 64, 77, 0.1)));
+}
+
+.altmonitor-step.is-current {
+    box-shadow: 0 0 0 2px var(--link-color, #2563eb);
+}
+
+.altmonitor-step-number {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: var(--gray-100, #e4edf6);
+    font-weight: 700;
+}
+
+.altmonitor-step.is-current .altmonitor-step-number {
+    background: var(--link-color, #2563eb);
+    color: #fff;
+}
+
+.altmonitor-step.is-done .altmonitor-step-number {
+    background: var(--success-color, #0d9f6e);
+    color: #fff;
+}
+
+.altmonitor-step-body {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    min-width: 0;
+}
+
+.altmonitor-step-body h2,
+.altmonitor-step-body p {
+    margin: 0;
+}
+
+.altmonitor-step-body h2 {
+    font-size: 16px;
+}
+
+.altmonitor-step-body form {
+    margin: 0;
+}
+
+.altmonitor-step-link {
+    font-size: 13px;
+}
+
+.altmonitor-step .altmonitor-describer {
+    margin-top: 8px;
+    width: 100%;
+}
+
+.altmonitor-coverage {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+}
+
+.altmonitor-coverage-value {
+    font-size: 22px;
+}
+
+.altmonitor-panel .altmonitor-cards {
+    margin: var(--m, 14px) 0 0;
+}
+
+.altmonitor-panel .altmonitor-card {
+    background: var(--button-bg, var(--white, #fff));
+}
+
+.altmonitor-details > summary{
+    cursor: pointer;
+    list-style: none;
+}
+
+.altmonitor-details > summary::-webkit-details-marker{
+    display: none;
+}
+
+.altmonitor-details > summary {
+    display: inline-block;
+    color: var(--link-color, #2563eb);
+    margin-bottom: var(--m, 14px);
+}
+
+.altmonitor-details > summary::after {
+    content: ' ▾';
+}
+
+.altmonitor-details[open] > summary::after {
+    content: ' ▴';
+}
+
+.altmonitor-other-scans {
+    gap: 8px 10px;
+    margin: var(--m, 14px) 0;
+}
+
+/* List toolbar: status pills on the left, filter boxes on the right, search underneath. */
+.altmonitor-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin: 0 0 24px;
+}
+
+.altmonitor-toolbar-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px 16px;
+}
+
+.altmonitor-toolbar .altmonitor-tabs {
+    margin: 0;
+}
+
+.altmonitor-filter-boxes {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-inline-start: auto;
+}
+
+.altmonitor-filter-boxes .select select {
+    min-width: 130px;
+    max-width: 200px;
+}
+
+/* Craft pulls table panes up by their padding, which would swallow the space under the search. */
+#altmonitor-images-form .tablepane,
+#altmonitor-suggestions-form .tablepane {
+    margin-top: 0;
+}
+
+.altmonitor-clear {
+    padding: 0 4px;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.altmonitor-search {
+    width: 100%;
+}
+
+.altmonitor-search input {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+@media (max-width: 767px) {
+    .altmonitor-filter-boxes {
+        justify-content: flex-start;
+        margin-inline-start: 0;
+        width: 100%;
+    }
+
+    .altmonitor-filter-boxes .select {
+        flex: 1 1 140px;
+    }
+
+    .altmonitor-filter-boxes .select select {
+        width: 100%;
+        min-width: 0;
+        max-width: none;
+    }
+}
+
+/* Tabs for statuses */
+.altmonitor-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: var(--m, 14px);
+}
+
+.altmonitor-tabs a {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: var(--button-bg, var(--gray-050, #f3f7fc));
+    color: var(--text-color, #3f4d5a);
+    text-decoration: none;
+    box-shadow: 0 0 0 1px var(--hairline-color, rgba(51, 64, 77, 0.1));
+}
+
+.altmonitor-tabs a:hover {
+    background: var(--button-bg--hover, var(--gray-100, #e4edf6));
+    text-decoration: none;
+}
+
+.altmonitor-tabs a.is-current {
+    background: var(--link-color, #2563eb);
+    color: #fff;
+}
+
+.altmonitor-tab-count {
+    padding: 0 7px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.08);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.altmonitor-tabs a.is-current .altmonitor-tab-count {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+/* Craft's page header doesn't wrap by default; long titles/actions can spill on narrow screens. */
+#header {
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+#page-title {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+#page-heading {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+#action-buttons {
+    display: flex;
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    min-width: 0;
+    max-width: 100%;
+}
+
+#action-buttons > * {
+    max-width: 100%;
+}
+
+.altmonitor-table th[scope="row"],
+.altmonitor-table td {
+    vertical-align: top;
+}
+
+/* Rows */
+.altmonitor-table .altmonitor-thumb {
+    width: 80px;
+}
+
+.altmonitor-thumb img {
+    max-width: 80px;
+    max-height: 80px;
+}
+
+.altmonitor-file {
+    max-width: 260px;
+    overflow-wrap: anywhere;
+}
+
+.altmonitor-alt-cell {
+    min-width: 280px;
+}
+
+.altmonitor-alt-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    margin-bottom: 6px;
+}
+
+.altmonitor-row-actions {
+    width: 1%;
+    white-space: nowrap;
+}
+
+.altmonitor-suggest {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    margin-top: 8px;
+    padding: 8px 10px;
+    border-radius: var(--large-border-radius, 5px);
+    background: color-mix(in srgb, var(--link-color, #2563eb) 8%, var(--pane-bg, #fff));
+    box-shadow: inset 3px 0 0 var(--link-color, #2563eb);
+}
+
+.altmonitor-suggest-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--link-color, #2563eb);
+}
+
+.altmonitor-suggest-text {
+    flex: 1 1 200px;
+    margin: 0;
+}
+
+.altmonitor-suggest.is-used {
+    background: color-mix(in srgb, var(--success-color, #0d9f6e) 8%, var(--pane-bg, #fff));
+    box-shadow: inset 3px 0 0 var(--success-color, #0d9f6e);
+    color: var(--success-color, #0d9f6e);
+}
+
+.altmonitor-suggest--large {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 14px 16px;
+    margin: 0 0 var(--m, 14px);
+}
+
+.altmonitor-suggest--large .altmonitor-suggest-text {
+    flex: none;
+    font-size: 16px;
+}
+
+.altmonitor-suggest--large form {
+    margin: 0;
+}
+
+.altmonitor-bulk {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: var(--m, 14px) 0;
+    padding: 10px 12px;
+    border-radius: var(--large-border-radius, 5px);
+    background: var(--pane-bg, var(--gray-050, #f3f7fc));
+    box-shadow: var(--pane-shadow, 0 0 0 1px var(--hairline-color, rgba(51, 64, 77, 0.1)));
+}
+
+.altmonitor-bulk-count {
+    margin-inline-end: auto;
+    color: var(--medium-text-color, #606d7b);
+}
+
+/* Suggestions review */
+.altmonitor-review td {
+    vertical-align: top;
+}
+
+.altmonitor-review-image {
+    width: 160px;
+}
+
+.altmonitor-review-thumb img {
+    display: block;
+    max-width: 160px;
+    max-height: 120px;
+    border-radius: 4px;
+}
+
+.altmonitor-review-name {
+    display: block;
+    max-width: 160px;
+    margin-top: 4px;
+    overflow-wrap: anywhere;
+}
+
+.altmonitor-review textarea {
+    min-width: 240px;
+    font-size: 15px;
+}
+
+.altmonitor-review-meta {
+    margin-top: 6px;
+}
+
+.altmonitor-review tr.is-leaving {
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+/* One image */
+.altmonitor-image-layout {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 28px;
+    align-items: flex-start;
+}
+
+.altmonitor-image-side {
+    flex: 0 1 380px;
+    min-width: 0;
+}
+
+.altmonitor-image-main {
+    flex: 1 1 380px;
+    min-width: 0;
+    max-width: 720px;
+}
+
+.altmonitor-model > section > h2 {
+    margin-bottom: 8px;
+}
+
+.altmonitor-model > section > p:last-child {
+    margin-bottom: 0;
+}
+
+.altmonitor-settings {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 24px;
+    max-width: 1120px;
+    align-content: start;
+}
+
+.altmonitor-settings > .warning,
+.altmonitor-settings > #altmonitor-ai-info,
+.altmonitor-settings > hr,
+.altmonitor-settings > h2 {
+    grid-column: 1 / -1;
+}
+
+.altmonitor-settings > .field:last-child {
+    grid-column: 1 / -1;
+}
+
+.altmonitor-settings > h2 {
+    margin: var(--l, 18px) 0 8px;
+    font-size: 18px;
+    line-height: 1.3;
+}
+
+.altmonitor-settings > h2:first-of-type {
+    margin-top: 0;
+}
+
+.altmonitor-settings > hr {
+    margin: var(--l, 18px) 0;
+}
+
+.altmonitor-review .altmonitor-row-actions .flex {
+    gap: 6px;
+}
+
+.altmonitor-review td > p {
+    margin: 0 0 6px;
+}
+
+.altmonitor-review textarea {
+    min-width: 280px;
+    min-height: 58px;
+    resize: vertical;
+}
+
+.altmonitor-settings .field {
+    margin-bottom: 12px;
+}
+
+.altmonitor-settings > #altmonitor-ai-info {
+    margin-bottom: 18px;
+}
+
+.altmonitor-settings #altmonitor-ai-info > p {
+    margin-bottom: 8px;
+}
+
+.altmonitor-tabs a:focus-visible,
+.altmonitor-card:focus-visible {
+    outline: 2px solid var(--focus-ring-color, var(--link-color, #2563eb));
+    outline-offset: 2px;
+}
+
+.altmonitor-image-main .field {
+    margin-bottom: 12px;
+}
+
+.altmonitor-image-main textarea {
+    font-size: 15px;
+}
+
+.altmonitor-facts-small {
+    margin-top: 12px;
+    font-size: 13px;
+}
+
+.altmonitor-decorative {
+    margin-top: var(--xl, 24px);
+    padding-top: 12px;
+    border-top: 1px solid var(--hairline-color, rgba(51, 64, 77, 0.1));
+}
+
+/* Image model page */
+.altmonitor-summary {
+    margin: 0 0 12px;
+    padding-inline-start: 20px;
+    list-style: disc;
+}
+
+.altmonitor-summary li {
+    margin-bottom: 4px;
+}
+
+.altmonitor-consent {
+    margin-bottom: var(--xl, 24px);
+}
+
+.altmonitor-consent .flex {
+    margin-top: 12px;
+    gap: 14px;
+}
+
+.altmonitor-details-heading {
+    margin-top: var(--xl, 24px);
+    padding-top: var(--m, 14px);
+    border-top: 1px solid var(--hairline-color, rgba(51, 64, 77, 0.1));
+}
+
+/* Keep the plugin close to Craft's compact control panel rhythm. */
+.altmonitor-cards {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+    gap: 10px;
+    margin-bottom: var(--l, 18px);
+}
+
+.altmonitor-card {
+    padding: 12px 14px;
+    background: var(--pane-bg, var(--white, #fff));
+}
+
+.altmonitor-card-value {
+    font-size: 24px;
+}
+
+.altmonitor-panel,
+.altmonitor-state {
+    padding: 16px;
+}
+
+.altmonitor-panel {
+    margin-bottom: var(--l, 18px);
+}
+
+.altmonitor-steps {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: var(--l, 18px);
+}
+
+.altmonitor-step {
+    gap: 10px;
+    padding: 14px;
+}
+
+.altmonitor-tabs {
+    gap: 5px;
+    margin-bottom: 10px;
+}
+
+.altmonitor-tabs a {
+    padding: 5px 10px;
+}
+
+.altmonitor-image-layout {
+    display: grid;
+    grid-template-columns: minmax(220px, 0.85fr) minmax(0, 1.5fr);
+    gap: 20px;
+}
+
+.altmonitor-image-side,
+.altmonitor-image-main {
+    min-width: 0;
+    max-width: none;
+}
+
+.altmonitor-info {
+    margin-bottom: var(--l, 18px);
+}
+
+.altmonitor-consent {
+    padding: 16px;
+    margin-bottom: var(--l, 18px);
+}
+
+.altmonitor-details-heading {
+    margin-top: var(--l, 18px);
+}
+
+@media (max-width: 900px) {
+    .altmonitor-steps {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+    }
+
+    .altmonitor-model,
+    .altmonitor-settings {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .altmonitor-model > .altmonitor-state--info,
+    .altmonitor-model > div[aria-live],
+    .altmonitor-model > .altmonitor-consent,
+    .altmonitor-model > .altmonitor-details-heading,
+    .altmonitor-model > section[aria-labelledby="altmonitor-privacy"] {
+        grid-column: auto;
+    }
+}
+
+@media (max-width: 767px) {
+    .altmonitor-image-layout {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 14px;
+    }
+
+    .altmonitor-alt-cell,
+    .altmonitor-review textarea {
+        min-width: 180px;
+    }
+}
+
+/* Phones: list rows stack instead of squeezing columns */
+@media (max-width: 767px) {
+    #altmonitor-images thead,
+    #altmonitor-suggestions thead {
+        display: none;
+    }
+
+    #altmonitor-images,
+    #altmonitor-suggestions,
+    #altmonitor-images tbody,
+    #altmonitor-suggestions tbody {
+        display: block;
+        width: 100%;
+    }
+
+    #altmonitor-images tr,
+    #altmonitor-suggestions tr {
+        display: grid;
+        grid-template-columns: auto auto 1fr;
+        gap: 6px 10px;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--hairline-color, rgba(51, 64, 77, 0.1));
+    }
+
+    #altmonitor-images tr > *,
+    #altmonitor-suggestions tr > * {
+        /* Craft sizes table cells inline; stacked rows need their own widths. */
+        max-width: none !important;
+        display: block;
+        padding: 0;
+        border: 0;
+    }
+
+    #altmonitor-images .altmonitor-alt-cell,
+    #altmonitor-images .altmonitor-row-actions,
+    #altmonitor-suggestions tr > td:nth-last-child(-n+2) {
+        grid-column: 1 / -1;
+        justify-self: stretch;
+        min-width: 0;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .altmonitor-file {
+        max-width: none;
+    }
+
+    .altmonitor-review-image {
+        width: auto;
+    }
+
+    .altmonitor-review textarea {
+        min-width: 0;
+        width: 100%;
+    }
+
+    .altmonitor-tabs {
+        margin-inline: -2px;
+    }
+
+    .altmonitor-settings {
+        max-width: none;
+    }
+
+    .altmonitor-facts {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    
+
+    .altmonitor-bulk {
+        position: static;
+    }
+}
+
+/* =====================================================================================
+   One spacing system for every AltMonitor page. Keep this block last: it gives all cards,
+   lists and toolbars the same padding, gaps, borders and heading sizes, whatever the
+   page-specific rules above say.
+   Scale: 8 · 12 · 16 · 24px. Cards: 16px 20px padding, 8px radius, hairline border.
+   ===================================================================================== */
+:root {
+    --am-space-1: 8px;
+    --am-space-2: 12px;
+    --am-space-3: 16px;
+    --am-space-4: 24px;
+    --am-radius: 8px;
+    --am-border-color: var(--hairline-color, rgba(51, 64, 77, 0.12));
+    --am-card-bg: var(--white, #fff);
+    --am-soft-bg: var(--gray-050, #f3f7fc);
+}
+
+/* Cards */
+.altmonitor-step,
+.altmonitor-panel,
+.altmonitor-state,
+.altmonitor-consent,
+.altmonitor-info,
+.altmonitor-bulk {
+    margin: 0 0 var(--am-space-4);
+    padding: var(--am-space-3) 20px;
+    border: 1px solid var(--am-border-color);
+    border-radius: var(--am-radius);
+    background: var(--am-card-bg);
+    box-shadow: none;
+}
+
+.altmonitor-state {
+    border-inline-start-width: 4px;
+}
+
+.altmonitor-step-body,
+.altmonitor-state {
+    gap: var(--am-space-1);
+}
+
+.altmonitor-step h2,
+.altmonitor-panel h2,
+.altmonitor-state h2,
+.altmonitor-consent h2,
+.altmonitor-info > h2,
+.altmonitor-details-heading {
+    margin: 0 0 var(--am-space-1);
+    font-size: 17px;
+    line-height: 1.3;
+}
+
+.altmonitor-step h2 {
+    font-size: 16px;
+}
+
+.altmonitor-panel > :last-child,
+.altmonitor-consent > :last-child,
+.altmonitor-info > :last-child {
+    margin-bottom: 0;
+}
+
+/* Grids of cards */
+.altmonitor-steps {
+    gap: var(--am-space-3);
+    margin: 0 0 var(--am-space-4);
+}
+
+.altmonitor-steps .altmonitor-step {
+    margin: 0;
+}
+
+.altmonitor-step.is-current {
+    border-color: var(--link-color, #2563eb);
+    box-shadow: 0 0 0 1px var(--link-color, #2563eb);
+}
+
+.altmonitor-cards {
+    gap: var(--am-space-2);
+    margin: var(--am-space-3) 0 0;
+}
+
+.altmonitor-card {
+    padding: var(--am-space-2) var(--am-space-3);
+    border: 1px solid var(--am-border-color);
+    border-radius: var(--am-radius);
+    background: var(--am-soft-bg);
+    box-shadow: none;
+}
+
+.altmonitor-details {
+    margin: 0 0 var(--am-space-4);
+}
+
+.altmonitor-details > .altmonitor-cards {
+    margin: 0 0 var(--am-space-3);
+}
+
+/* Toolbars and lists */
+.altmonitor-toolbar {
+    gap: var(--am-space-2);
+    margin: 0 0 var(--am-space-4);
+}
+
+.altmonitor-tabs {
+    gap: 6px;
+}
+
+.altmonitor-table tbody > tr > td,
+.altmonitor-table tbody > tr > th {
+    padding-top: var(--am-space-3);
+    padding-bottom: var(--am-space-3);
+    border-bottom: 1px solid var(--am-border-color);
+}
+
+.altmonitor-table tbody > tr:last-child > td,
+.altmonitor-table tbody > tr:last-child > th {
+    border-bottom: 0;
+}
+
+.altmonitor-bulk {
+    margin: var(--am-space-3) 0;
+    padding: var(--am-space-2) var(--am-space-3);
+    background: var(--am-soft-bg);
+}
+
+.altmonitor-suggest {
+    border-radius: var(--am-radius);
+}
+
+.altmonitor-suggest--large {
+    margin: 0 0 var(--am-space-3);
+    padding: var(--am-space-3) 20px;
+}
+
+/* One image */
+.altmonitor-image-layout {
+    gap: var(--am-space-4);
+    margin-bottom: var(--am-space-4);
+}
+
+.altmonitor-preview {
+    border-radius: var(--am-radius);
+}
+
+.altmonitor-preview img {
+    border-radius: calc(var(--am-radius) - 2px);
+}
+
+.altmonitor-alt-status {
+    margin-bottom: var(--am-space-2);
+}
+
+.altmonitor-decorative {
+    margin-top: var(--am-space-4);
+    padding-top: var(--am-space-3);
+}
+
+/* Image model page: the details read top to bottom, each card full width, so tables fit. */
+.altmonitor-model {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+}
+
+.altmonitor-model > * {
+    grid-column: 1 / -1;
+}
+
+.altmonitor-details-heading {
+    margin-top: var(--am-space-2);
+    padding-top: var(--am-space-4);
+}
+
+.altmonitor-info table.data {
+    margin: 0 0 var(--am-space-2);
+}
+
+/* Settings */
+.altmonitor-settings {
+    gap: 0 var(--am-space-4);
+}
+
+.altmonitor-settings > h2 {
+    margin: var(--am-space-4) 0 var(--am-space-2);
+    font-size: 17px;
+}
+
+.altmonitor-settings > h2:first-of-type {
+    margin-top: 0;
+}
+
+.altmonitor-settings > hr {
+    margin: var(--am-space-4) 0 0;
+}
+
+.altmonitor-settings .field {
+    margin-bottom: var(--am-space-3);
+}
+
+@media (max-width: 767px) {
+    .altmonitor-step,
+    .altmonitor-panel,
+    .altmonitor-state,
+    .altmonitor-consent,
+    .altmonitor-info {
+        padding: var(--am-space-2) var(--am-space-3);
+        margin-bottom: var(--am-space-3);
+    }
+
+    .altmonitor-steps,
+    .altmonitor-toolbar,
+    .altmonitor-image-layout {
+        margin-bottom: var(--am-space-3);
+    }
+
+    #altmonitor-images tr,
+    #altmonitor-suggestions tr {
+        padding: var(--am-space-2) 0;
+    }
+
+    #altmonitor-images tr > *,
+    #altmonitor-suggestions tr > * {
+        padding: 0;
+        border-bottom: 0;
+    }
+}
+
+/* Status cards keep their coloured edge on top of the shared card border. */
+.altmonitor-state--good { border-inline-start-color: var(--success-color, #0d9f6e); }
+.altmonitor-state--info { border-inline-start-color: var(--link-color, #2563eb); }
+.altmonitor-state--warning { border-inline-start-color: var(--warning-color, #c75b00); }
+.altmonitor-state--error { border-inline-start-color: var(--error-color, #cf1124); }
+
+/* Filter boxes share the pills' row and shrink before they wrap below it. */
+.altmonitor-filter-boxes {
+    flex: 1 1 320px;
+    flex-wrap: nowrap;
+    min-width: 0;
+}
+
+.altmonitor-filter-boxes .select {
+    flex: 0 1 auto;
+    min-width: 110px;
+}
+
+.altmonitor-filter-boxes .select select {
+    width: 100%;
+    min-width: 0;
+}
+
+/* Host names stay on one line. */
+.altmonitor-services code {
+    white-space: nowrap;
+    overflow-wrap: normal;
+}
+
+@media (max-width: 767px) {
+    .altmonitor-filter-boxes {
+        flex-wrap: wrap;
+    }
+
+    .altmonitor-filter-boxes .select {
+        flex: 1 1 140px;
+    }
+}
+
+/* The describing popup */
+.altmonitor-dialog {
+    width: min(640px, calc(100vw - 32px));
+    max-height: calc(100vh - 48px);
+    padding: 0;
+    border: 1px solid var(--am-border-color);
+    border-radius: 12px;
+    background: var(--am-card-bg);
+    color: var(--text-color, #3f4d5a);
+    box-shadow: 0 24px 64px rgba(31, 41, 51, 0.3);
+}
+
+.altmonitor-dialog[open] {
+    display: flex;
+    flex-direction: column;
+}
+
+.altmonitor-dialog::backdrop {
+    background: rgba(31, 41, 51, 0.45);
+}
+
+.altmonitor-dialog-head {
+    padding: 20px 24px 12px;
+}
+
+.altmonitor-dialog-head h2 {
+    margin: 0 0 4px;
+    font-size: 18px;
+}
+
+.altmonitor-dialog-head p {
+    margin: 0;
+}
+
+.altmonitor-dialog-body {
+    display: flex;
+    gap: var(--am-space-3);
+    align-items: flex-start;
+    padding: var(--am-space-2) 24px;
+}
+
+.altmonitor-dialog-image {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 160px;
+    height: 120px;
+    border-radius: var(--am-radius);
+    background: var(--am-soft-bg);
+    overflow: hidden;
+}
+
+.altmonitor-dialog-image img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+.altmonitor-dialog-main {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.altmonitor-dialog-name {
+    margin: 0 0 4px;
+    color: var(--medium-text-color, #606d7b);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
+.altmonitor-dialog-result {
+    margin: 0 0 var(--am-space-1);
+    padding: var(--am-space-1) var(--am-space-2);
+    border-radius: var(--am-radius);
+    background: var(--blue-050, #eff6ff);
+    box-shadow: inset 3px 0 0 var(--link-color, #2563eb);
+    font-size: 15px;
+}
+
+.altmonitor-dialog-result.is-same {
+    background: var(--gray-050, #f3f4f6);
+    box-shadow: inset 3px 0 0 var(--gray-300, #cbd5e1);
+    color: var(--light-text-color, #606d7b);
+    font-size: 14px;
+}
+
+.altmonitor-dialog-result.is-failed {
+    background: var(--red-050, #fef2f2);
+    box-shadow: inset 3px 0 0 var(--error-color, #cf1124);
+    font-size: 14px;
+}
+
+.altmonitor-dialog-status {
+    margin: var(--am-space-1) 0 0;
+}
+
+.altmonitor-dialog-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--am-space-1);
+    padding: var(--am-space-3) 24px 20px;
+}
+
+.altmonitor-dialog-foot [hidden] {
+    display: none;
+}
+
+@media (max-width: 767px) {
+    .altmonitor-dialog-body {
+        flex-direction: column;
+    }
+
+    .altmonitor-dialog-image {
+        width: 100%;
+        height: 160px;
+    }
+}

@@ -1,0 +1,68 @@
+{
+    "name": "tahadudhiya53/craft-alt-monitor",
+    "description": "Free image alt text auditing and management for Craft CMS, with alt text described from the image itself by a free model running in the browser.",
+    "type": "craft-plugin",
+    "version": "5.0.0",
+    "license": "MIT",
+    "keywords": [
+        "craft",
+        "craftcms",
+        "craft-plugin",
+        "accessibility",
+        "alt-text",
+        "assets",
+        "ollama"
+    ],
+    "authors": [
+        {
+            "name": "Taha Dudhiya"
+        }
+    ],
+    "require": {
+        "php": ">=8.2.0",
+        "craftcms/cms": "^5.9.0"
+    },
+    "require-dev": {
+        "craftcms/ecs": "dev-main",
+        "craftcms/phpstan": "dev-main",
+        "phpstan/phpstan": "^2.2",
+        "phpunit/phpunit": "^11.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "Tahadudhiya\\AltMonitor\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tahadudhiya\\AltMonitor\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "class": "Tahadudhiya\\AltMonitor\\AltMonitor",
+        "handle": "alt-monitor",
+        "name": "AltMonitor",
+        "developer": "Taha Dudhiya"
+    },
+    "scripts": {
+        "check-cs": "@php -d error_reporting=6143 vendor/bin/ecs check --ansi",
+        "fix-cs": "@php -d error_reporting=6143 vendor/bin/ecs check --ansi --fix",
+        "phpstan": "@php vendor/bin/phpstan analyse --no-progress --memory-limit=1G",
+        "test": "phpunit",
+        "test-integration": "@php vendor/bin/phpunit -c phpunit.integration.xml.dist",
+        "test-browser": [
+            "Composer\\Config::disableProcessTimeout",
+            "node tests/browser/run.mjs"
+        ]
+    },
+    "config": {
+        "sort-packages": true,
+        "platform": {
+            "php": "8.2.0"
+        },
+        "allow-plugins": {
+            "yiisoft/yii2-composer": true,
+            "craftcms/plugin-installer": true
+        }
+    }
+}
