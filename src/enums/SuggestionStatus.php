@@ -34,7 +34,7 @@ enum SuggestionStatus: string
         return match ($this) {
             self::QUEUED => 'gray',
             self::PENDING => 'blue',
-            self::APPROVED => 'green',
+            self::APPROVED => 'teal',
             self::REJECTED => 'orange',
             self::FAILED => 'red',
         };

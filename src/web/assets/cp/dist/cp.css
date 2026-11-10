@@ -17,7 +17,7 @@
 
 a.altmonitor-card:hover,
 a.altmonitor-card:focus-visible {
-    background: var(--button-bg--hover, var(--gray-100, #e4edf6));
+    background: var(--gray-100, #e4edf6);
     text-decoration: none;
 }
 
@@ -257,8 +257,9 @@ a.altmonitor-card:focus-visible {
     margin: 0 0 8px;
 }
 
+/* Craft's own "enabled" teal, the same as the Good status dot. */
 .altmonitor-progress--good > div {
-    background: var(--success-color, #0d9f6e);
+    background: var(--enabled-color, #11a697);
 }
 
 .altmonitor-hint {
@@ -354,9 +355,6 @@ a.altmonitor-card:focus-visible {
     margin: var(--m, 14px) 0 0;
 }
 
-.altmonitor-panel .altmonitor-card {
-    background: var(--button-bg, var(--white, #fff));
-}
 
 .altmonitor-details > summary{
     cursor: pointer;

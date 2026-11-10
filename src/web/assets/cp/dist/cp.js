@@ -760,6 +760,15 @@
                 if (status === 'ready') {
                     remember('localStorage', 'notKept', null);
                     Craft.cp.displayNotice(Craft.t('alt-monitor', 'The image model is ready.'));
+
+                    // Sent here by a Describe button: go back, where resumePending() describes the
+                    // images that were asked for. (returnUrl is checked by ModelController.)
+                    if (self.returnUrl) {
+                        window.location.replace(self.returnUrl);
+
+                        return;
+                    }
+
                     self.show('ready');
                     self.describeReady();
                     var next = self.root.querySelector('[data-model-state="ready"] [data-continue]');

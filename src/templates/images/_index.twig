@@ -20,7 +20,7 @@
         {status: 'missing', label: 'Missing'|t('alt-monitor'), count: stats.missing, color: 'red'},
         {status: 'weak', label: 'Weak'|t('alt-monitor'), count: stats.weak, color: 'orange'},
         {status: 'review', label: 'Needs review'|t('alt-monitor'), count: stats.review, color: 'blue'},
-        {status: 'good', label: 'Good'|t('alt-monitor'), count: stats.good, color: 'green'},
+        {status: 'good', label: 'Good'|t('alt-monitor'), count: stats.good, color: 'teal'},
     ] %}
     <form method="get" action="{{ url('alt-monitor/images') }}" class="altmonitor-toolbar" role="search" id="altmonitor-image-filters" data-altmonitor-autofilter>
         {% if criteria.status %}{{ hiddenInput('status', criteria.status.value) }}{% endif %}

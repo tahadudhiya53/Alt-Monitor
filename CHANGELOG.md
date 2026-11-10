@@ -19,7 +19,8 @@
 - Image model page (AltMonitor → Image model), where each person agrees to the one-time model
   download first. It lists what is downloaded, from where and how big, what those services see,
   where the files are kept and how to remove them. Describing sends people there when their
-  browser doesn't have the model yet, and picks up where they left off afterwards. It also shows
+  browser doesn’t have the model yet, returns them to their images as soon as the download
+  finishes, and describes the images they chose. It also shows
   download progress, cancelling, and the storage used, and warns about metered connections, low
   storage, plain HTTP and browsers that can't keep the files.
 - Optional server-side suggestions from an Ollama vision model, configured in

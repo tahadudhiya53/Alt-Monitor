@@ -40,7 +40,7 @@ enum AltStatus: string
         return match ($this) {
             self::MISSING => 'red',
             self::WEAK => 'orange',
-            self::GOOD => 'green',
+            self::GOOD => 'teal',
             self::REVIEW => 'blue',
         };
     }
