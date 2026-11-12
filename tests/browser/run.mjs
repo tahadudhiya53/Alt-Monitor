@@ -86,11 +86,21 @@ try {
     const first = results.find((result) => 'loadedMs' in result)?.loadedMs ?? 0;
     const again = results.find((result) => 'reloadedMs' in result)?.reloadedMs ?? Infinity;
     const cached = results.find((result) => 'cached' in result)?.cached ?? [];
-    const kept = cached.filter((url) => url.endsWith('_quantized.onnx')).length === 4 && again < first / 3;
+    const kept = cached.filter((url) => url.includes('/Florence-2') && url.endsWith('_quantized.onnx')).length === 4 && again < first / 3;
+    // A German site's description is translated, and the translation model is kept too, as the
+    // files cp.js's TRANSLATION_FILES expects (so the image model page counts it as downloaded).
+    const german = results.find((result) => 'german' in result);
+    const translationFiles = ['config.json', 'generation_config.json', 'tokenizer.json', 'tokenizer_config.json', 'onnx/encoder_model_quantized.onnx', 'onnx/decoder_model_merged_quantized.onnx'];
+    const translated = Boolean(german && german.germanTranslated && /\p{L}{3,}/u.test(german.german) && german.german.toLowerCase() !== german.english.toLowerCase()
+        && translationFiles.every((file) => cached.some((url) => url.endsWith('/Xenova/opus-mt-en-de/resolve/main/' + file))));
+    const translateOnly = results.find((result) => 'translateOnly' in result);
+    const translatedAlone = Boolean(translateOnly && /\p{L}{3,}/u.test(translateOnly.translateOnly) && !/cats/i.test(translateOnly.translateOnly));
+    console.log(translateOnly ? `Translated alone, without the image model: “${translateOnly.translateOnly}” (${translateOnly.translateOnlyMs} ms).` : 'Not translated alone.');
+    console.log(german ? `Translated: “${german.english}” → “${german.german}” (${german.germanMs} ms with the translation model's first load).` : 'Not translated.');
     console.log(`Model load: ${first} ms the first time, ${again} ms from the browser's cache.`);
     // Describing again gives a new description, not the same sentence.
     const varied = described.filter((result) => result.againFresh && typeof result.again === 'string' && result.again.toLowerCase() !== result.text.toLowerCase()).length === photos.length;
-    exitCode = outcome === 'done' && described.length === photos.length && kept && varied ? 0 : 1;
+    exitCode = outcome === 'done' && described.length === photos.length && kept && varied && translated && translatedAlone ? 0 : 1;
     console.log(exitCode === 0 ? `OK: ${described.length} photos described in the browser.` : `FAILED (${outcome || 'timed out'}).`);
     socket.close();
 } finally {

@@ -11,8 +11,10 @@ use PHPUnit\Framework\TestCase;
 use Tahadudhiya\AltMonitor\ai\EndpointPolicy;
 use Tahadudhiya\AltMonitor\ai\OllamaProvider;
 use Tahadudhiya\AltMonitor\ai\PromptBuilder;
+use Tahadudhiya\AltMonitor\ai\Translations;
 use Tahadudhiya\AltMonitor\errors\AiProviderException;
 use Tahadudhiya\AltMonitor\models\ImageContext;
+use Tahadudhiya\AltMonitor\services\AiProviders;
 
 /**
  * The AI pieces that need no Craft app: where requests may go, the prompt, reading the model's
@@ -172,7 +174,7 @@ class AiTest extends TestCase
 
         $textOnly = self::ollama([self::json(['models' => [['name' => 'qwen2.5vl:3b']]]), self::json(['capabilities' => ['completion']])])->status();
         self::assertFalse($textOnly->modelAvailable);
-        self::assertStringContainsString('does not accept images', $textOnly->message);
+        self::assertStringContainsString('can’t read images', $textOnly->message);
     }
 
     public function testStatusReportsAnUnreachableServer(): void
@@ -180,7 +182,7 @@ class AiTest extends TestCase
         $status = self::ollama([new ConnectException('Connection refused', new Request('GET', 'http://localhost:11434/api/tags'))])->status();
 
         self::assertFalse($status->reachable);
-        self::assertStringContainsString('could not be reached', $status->message);
+        self::assertStringContainsString('Can’t reach Ollama', $status->message);
     }
 
     public function testDescribeReturnsTheModelsAnswer(): void
@@ -231,5 +233,60 @@ class AiTest extends TestCase
         } catch (AiProviderException) {
             self::assertCount(1, $mock);
         }
+    }
+
+    // Translating the browser model's English descriptions
+
+    /**
+     * @return iterable<string, array{string, string|null}>
+     */
+    public static function siteLanguages(): iterable
+    {
+        yield 'German' => ['de', 'Xenova/opus-mt-en-de'];
+        yield 'Swiss German, as Craft writes it' => ['de-CH', 'Xenova/opus-mt-en-de'];
+        yield 'with an underscore and capitals' => ['FR_fr', 'Xenova/opus-mt-en-fr'];
+        yield 'Simplified Chinese' => ['zh-CN', 'Xenova/opus-mt-en-zh'];
+        yield 'Traditional Chinese' => ['zh-TW', null];
+        yield 'Traditional Chinese by script' => ['zh-Hant', null];
+        yield 'English needs none' => ['en-GB', null];
+        yield 'Japanese (its model is left out)' => ['ja', null];
+        yield 'Portuguese (no single-language model)' => ['pt-BR', null];
+        yield 'nonsense' => ['', null];
+    }
+
+    #[DataProvider('siteLanguages')]
+    public function testEachSiteLanguageGetsItsTranslationModelOrNone(string $language, ?string $model): void
+    {
+        self::assertSame($model, Translations::forLanguage($language)['model'] ?? null);
+    }
+
+    public function testOnlyEnglishCountsAsEnglish(): void
+    {
+        self::assertTrue(Translations::isEnglish('en'));
+        self::assertTrue(Translations::isEnglish('en-US'));
+        self::assertFalse(Translations::isEnglish('de'));
+        self::assertFalse(Translations::isEnglish('eu'));
+    }
+
+    public function testTheBasisSaysWhetherADescriptionWasTranslated(): void
+    {
+        $plain = AiProviders::browserModelLabel('onnx-community/Florence-2-base-ft');
+        $translated = AiProviders::browserModelLabel('onnx-community/Florence-2-base-ft', 'Xenova/opus-mt-en-de');
+
+        self::assertSame('Florence-2-base-ft (in the browser)', $plain);
+        self::assertSame('Florence-2-base-ft + opus-mt-en-de (in the browser)', $translated);
+        self::assertFalse(AiProviders::isTranslated($plain));
+        self::assertTrue(AiProviders::isTranslated($translated));
+        self::assertFalse(AiProviders::isTranslated('qwen2.5vl:3b'));
+        self::assertFalse(AiProviders::isTranslated(null));
+    }
+
+    public function testTranslatingAnEnglishSuggestionAddsTheTranslationModelToItsBasis(): void
+    {
+        $model = 'Xenova/opus-mt-en-de';
+
+        self::assertSame('Florence-2-base-ft + opus-mt-en-de (in the browser)', AiProviders::translatedBasis('Florence-2-base-ft (in the browser)', $model));
+        self::assertSame('qwen2.5vl:3b + opus-mt-en-de (in the browser)', AiProviders::translatedBasis('qwen2.5vl:3b', $model));
+        self::assertTrue(AiProviders::isTranslated(AiProviders::translatedBasis(null, $model)));
     }
 }

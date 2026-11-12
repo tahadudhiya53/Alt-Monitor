@@ -6,6 +6,7 @@ use Craft;
 use craft\base\Model;
 use craft\helpers\App;
 use Tahadudhiya\AltMonitor\ai\EndpointPolicy;
+use Tahadudhiya\AltMonitor\ai\Translations;
 
 /**
  * AltMonitor's configuration. Craft stores it in project config, and `config/alt-monitor.php`
@@ -78,6 +79,14 @@ class Settings extends Model
     public array $additionalGenericTerms = [];
 
     /**
+     * The language each site's suggestions are written in, by site UID, where it isn't the site's
+     * own language: “en”, or a language a translation model covers ({@see Translations::choices()}).
+     *
+     * @var array<string, string>
+     */
+    public array $siteLanguages = [];
+
+    /**
      * Handles of asset fields (such as a caption) whose text rule-based suggestions may use.
      *
      * @var list<string>
@@ -106,7 +115,7 @@ class Settings extends Model
             [['ollamaEndpoint', 'ollamaModel'], 'trim'],
             [['ollamaEndpoint', 'ollamaModel'], 'required'],
             [['ollamaEndpoint'], 'string', 'max' => 255],
-            [['ollamaModel'], 'match', 'pattern' => '/^[a-z0-9][a-z0-9._\-\/]*(:[a-z0-9._\-]+)?$/i', 'message' => Craft::t('alt-monitor', 'A model name is letters, digits, “.”, “-”, “_” and “/”, with an optional “:tag”.')],
+            [['ollamaModel'], 'match', 'pattern' => '/^[a-z0-9][a-z0-9._\-\/]*(:[a-z0-9._\-]+)?$/i', 'message' => Craft::t('alt-monitor', 'Use only letters, numbers, “.”, “-”, “_” and “/”, plus an optional “:tag”.')],
             [['ollamaModel', 'browserModel'], 'string', 'max' => 100],
             [['browserModelHost', 'browserWasmPath'], 'url', 'validSchemes' => ['https', 'http']],
             [['aiEnabled', 'auditOnSave', 'scanUsageAfterFullScan', 'suggestAfterScan', 'fallbackToRules'], 'boolean'],
@@ -114,6 +123,15 @@ class Settings extends Model
             [['scanBatchSize'], 'integer', 'min' => 10, 'max' => 1000],
             [['additionalGenericTerms', 'contextFieldHandles'], 'filter', 'filter' => [self::class, 'normalizeList']],
             [['contextFieldHandles'], 'each', 'rule' => ['match', 'pattern' => '/^[a-zA-Z][a-zA-Z0-9_]*$/']],
+            [['siteLanguages'], function(string $attribute): void {
+                foreach ($this->siteLanguages as $language) {
+                    if (!in_array($language, Translations::choices(), true)) {
+                        $this->addError($attribute, Craft::t('alt-monitor', 'Choose one of the listed languages.'));
+
+                        return;
+                    }
+                }
+            }],
             [['ollamaEndpoint'], function(string $attribute): void {
                 $problem = (new EndpointPolicy($this->allowedAiHosts))->problem($this->endpoint());
 
@@ -138,13 +156,41 @@ class Settings extends Model
         return array_values(array_unique(array_filter($items, static fn(string $item): bool => $item !== '')));
     }
 
+    /**
+     * The suggestion languages from the settings form, by site UID: only existing sites, and only
+     * where a language other than the site's own was chosen.
+     *
+     * @return array<string, string>
+     */
+    public static function normalizeSiteLanguages(mixed $value): array
+    {
+        $languages = [];
+        $sites = [];
+
+        foreach (Craft::$app->getSites()->getAllSites(true) as $site) {
+            $sites[(string)$site->uid] = $site;
+        }
+
+        foreach (is_array($value) ? $value : [] as $uid => $language) {
+            $site = $sites[(string)$uid] ?? null;
+
+            if ($site === null || !is_string($language) || $language === '' || $language === Translations::primary($site->language)) {
+                continue;
+            }
+
+            $languages[$uid] = $language;
+        }
+
+        return $languages;
+    }
+
     public function attributeLabels(): array
     {
         return [
             'ollamaEndpoint' => Craft::t('alt-monitor', 'Ollama endpoint'),
             'ollamaModel' => Craft::t('alt-monitor', 'Model'),
             'aiTimeout' => Craft::t('alt-monitor', 'Timeout'),
-            'scanBatchSize' => Craft::t('alt-monitor', 'Scan batch size'),
+            'scanBatchSize' => Craft::t('alt-monitor', 'Images per scan job'),
         ];
     }
 }
