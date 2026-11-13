@@ -1,17 +1,27 @@
 /*
  * Describes images with Florence-2, in the browser, in a worker so the page stays responsive.
  *
- * Messages in:  {type: 'load', config} · {type: 'describe', id, image: Blob, avoid: string[]}
- * Messages out: {type: 'progress', loaded, total} · {type: 'ready'} ·
- *               {type: 'trying', id, attempt} ·
- *               {type: 'description', id, text, fresh} · {type: 'error', id, message}
+ * Messages in:  {type: 'load', id, config, image: boolean, translations: string[]} ·
+ *               {type: 'describe', id, image: Blob, avoid: string[], translate?: string} ·
+ *               {type: 'translate', id, config, text, model}
+ * Messages out: {type: 'progress', id, loaded, total} · {type: 'ready', id} ·
+ *               {type: 'trying', id, attempt} · {type: 'translator', id} ·
+ *               {type: 'description', id, text, fresh, translated} ·
+ *               {type: 'translation', id, text} · {type: 'error', id, message}
  *
  * `avoid` lists what the image already has (its alt text, earlier suggestions). The worker works
  * through PLAN until it finds a description that says something new, so describing an image again
  * gives another, usually fuller, description instead of the same sentence. `fresh` is false when
  * every attempt repeated a known text.
  *
- * The model is downloaded once and kept in the browser's cache; images never leave the browser.
+ * Florence-2 writes English. With `translate` (an Opus-MT model, for a site in another language)
+ * each attempt is translated before it is compared with `avoid`, which holds that site's texts.
+ * `translate` translates a text alone, without the image model, which it never loads. The image
+ * model and each translation model are separate downloads: `load` fetches the image model only
+ * with `image`, and the translation models listed. Translation models otherwise load when first
+ * needed (`translator` is posted then); at most two are kept.
+ *
+ * The models are downloaded once and kept in the browser's cache; images never leave the browser.
  */
 // The short caption reads best as alt text, so it comes first; the detailed ones add more of
 // the scene; sampled ones word it differently.
@@ -24,29 +34,48 @@ const PLAN = [
     {task: '<MORE_DETAILED_CAPTION>'},
 ];
 const MAX_LENGTH = 160;
+const TRANSLATORS_KEPT = 2;
+// The library, set up once; the image model, loaded once.
+let library = null;
 let loading = null;
+// Opus-MT model → its loading translation pipeline, least recently used first.
+const translators = new Map();
 
-async function load(config) {
-    const lib = await import(config.library);
-    lib.env.allowLocalModels = false;
+function setup(config) {
+    library ??= import(config.library).then((lib) => {
+        lib.env.allowLocalModels = false;
 
-    if (config.remoteHost) {
-        lib.env.remoteHost = config.remoteHost;
-    }
+        if (config.remoteHost) {
+            lib.env.remoteHost = config.remoteHost;
+        }
 
-    if (config.wasmPaths) {
-        lib.env.backends.onnx.wasm.wasmPaths = config.wasmPaths;
-    }
+        if (config.wasmPaths) {
+            lib.env.backends.onnx.wasm.wasmPaths = config.wasmPaths;
+        }
 
-    // Progress across every file the model needs.
+        return lib;
+    });
+    library.catch(() => {
+        library = null;
+    });
+
+    return library;
+}
+
+// Progress across every file one load fetches (models share file names, so keyed by both).
+function reporter(id) {
     const files = {};
-    const progress = (event) => {
+
+    return (event) => {
         if (event.status === 'progress' && event.total) {
-            files[event.file] = [event.loaded, event.total];
+            files[event.name + '/' + event.file] = [event.loaded, event.total];
             const sums = Object.values(files).reduce((sum, [loaded, total]) => [sum[0] + loaded, sum[1] + total], [0, 0]);
-            postMessage({type: 'progress', loaded: sums[0], total: sums[1]});
+            postMessage({type: 'progress', id, loaded: sums[0], total: sums[1]});
         }
     };
+}
+
+async function loadImageModel(lib, config, progress) {
     const options = {dtype: 'q8', device: 'wasm', progress_callback: progress};
     const [model, processor] = await Promise.all([
         lib.Florence2ForConditionalGeneration.from_pretrained(config.model, options),
@@ -54,6 +83,52 @@ async function load(config) {
     ]);
 
     return {lib, model, processor};
+}
+
+async function load(id, config, image, translations) {
+    const lib = await setup(config);
+    const progress = reporter(id);
+
+    if (image && !loading) {
+        loading = loadImageModel(lib, config, progress);
+        loading.catch(() => {
+            loading = null;
+        });
+    }
+
+    await Promise.all([image ? loading : null, ...(translations || []).map((name) => translator(lib, name, progress))]);
+}
+
+function translator(lib, name, progress) {
+    // Used again: it moves to the end, so the one dropped is the least recently used.
+    if (translators.has(name)) {
+        const loaded = translators.get(name);
+        translators.delete(name);
+        translators.set(name, loaded);
+
+        return loaded;
+    }
+
+    const pipeline = lib.pipeline('translation', name, {dtype: 'q8', device: 'wasm', progress_callback: progress});
+    translators.set(name, pipeline);
+    // A failed load is not kept, so the next image tries again.
+    pipeline.catch(() => translators.get(name) === pipeline && translators.delete(name));
+
+    // Each one holds its model in memory: the oldest goes once there are too many.
+    while (translators.size > TRANSLATORS_KEPT) {
+        const [oldest, loaded] = translators.entries().next().value;
+        translators.delete(oldest);
+        loaded.then((done) => done.dispose()).catch(() => {});
+    }
+
+    return pipeline;
+}
+
+async function translate(pipeline, text) {
+    const [result] = await pipeline(text, {max_new_tokens: 200});
+    const translated = String(result?.translation_text ?? '').replace(/\s+/g, ' ').trim();
+
+    return translated.charAt(0).toUpperCase() + translated.slice(1);
 }
 
 // Alt text, not a paragraph. The model narrates (“In this image we can see…”, “in the background
@@ -125,8 +200,28 @@ async function caption(raw, step) {
     return shorten(processor.post_process_generation(decoded, step.task, raw.size)[step.task] ?? '');
 }
 
-async function describe(id, image, avoid) {
+async function describe(id, image, avoid, translateWith) {
+    if (!loading) {
+        throw new Error('The image model is not loaded.');
+    }
+
     const {lib} = await loading;
+    let pipeline = null;
+
+    if (translateWith) {
+        if (!translators.has(translateWith)) {
+            postMessage({type: 'translator', id});
+        }
+
+        // A translation model that won't load (evicted from the cache, say) doesn't cost the
+        // description: it stays in English, which is stored marked for translating.
+        try {
+            pipeline = await translator(lib, translateWith, null);
+        } catch (error) {
+            pipeline = null;
+        }
+    }
+
     const raw = await lib.RawImage.fromBlob(image);
     const known = new Set((avoid || []).map(normalize).filter(Boolean));
     let first = '';
@@ -136,20 +231,21 @@ async function describe(id, image, avoid) {
             postMessage({type: 'trying', id, attempt});
         }
 
-        const text = await caption(raw, PLAN[attempt]);
+        const english = await caption(raw, PLAN[attempt]);
+        const text = english && pipeline ? await translate(pipeline, english) : english;
         first ||= text;
 
         if (text && !known.has(normalize(text))) {
-            return {text, fresh: true};
+            return {text, fresh: true, translated: pipeline !== null};
         }
 
         // Without anything to avoid, the first description is the answer.
         if (text && known.size === 0) {
-            return {text, fresh: true};
+            return {text, fresh: true, translated: pipeline !== null};
         }
     }
 
-    return {text: first, fresh: false};
+    return {text: first, fresh: false, translated: pipeline !== null};
 }
 
 self.onmessage = async (event) => {
@@ -157,18 +253,22 @@ self.onmessage = async (event) => {
 
     try {
         if (message.type === 'load') {
-            loading ??= load(message.config);
-            await loading;
-            postMessage({type: 'ready'});
+            await load(message.id, message.config, message.image, message.translations);
+            postMessage({type: 'ready', id: message.id});
+        } else if (message.type === 'translate') {
+            const lib = await setup(message.config);
+
+            if (!translators.has(message.model)) {
+                postMessage({type: 'translator', id: message.id});
+            }
+
+            const text = await translate(await translator(lib, message.model, null), message.text);
+            postMessage({type: 'translation', id: message.id, text});
         } else if (message.type === 'describe') {
-            const result = await describe(message.id, message.image, message.avoid);
-            postMessage({type: 'description', id: message.id, text: result.text, fresh: result.fresh});
+            const result = await describe(message.id, message.image, message.avoid, message.translate);
+            postMessage({type: 'description', id: message.id, text: result.text, fresh: result.fresh, translated: result.translated});
         }
     } catch (error) {
-        if (message.type === 'load') {
-            loading = null;
-        }
-
         postMessage({type: 'error', id: message.id ?? null, message: String(error && error.message ? error.message : error)});
     }
 };

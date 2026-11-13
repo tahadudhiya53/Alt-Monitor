@@ -9,6 +9,8 @@
     const results = [];
     let started = performance.now();
     let pending = null;
+    // A translation model as the control panel uses one for sites in German.
+    const TRANSLATION = 'Xenova/opus-mt-en-de';
 
     const finish = (state) => {
         document.title = state + ':' + JSON.stringify(results);
@@ -22,17 +24,23 @@
             // someone describes an image again, which must give a different description.
             for (const url of images) {
                 const blob = await (await fetch(url)).blob();
-                const run = async (avoid) => {
+                const run = async (avoid, translate) => {
                     const begun = performance.now();
                     const answer = await new Promise((resolve, reject) => {
                         pending = {resolve, reject};
-                        worker.postMessage({type: 'describe', id: results.length, image: blob, avoid});
+                        worker.postMessage({type: 'describe', id: results.length, image: blob, avoid, translate});
                     });
                     return {...answer, ms: Math.round(performance.now() - begun)};
                 };
                 const first = await run([]);
                 const again = await run([first.text]);
                 results.push({image: url.split('/').pop(), text: first.text, ms: first.ms, again: again.text, againMs: again.ms, againFresh: again.fresh});
+
+                // For a German site: the same first description, translated in the browser.
+                if (url === images[0]) {
+                    const german = await run([], TRANSLATION);
+                    results.push({translatedImage: url.split('/').pop(), english: first.text, german: german.text, germanTranslated: german.translated, germanMs: german.ms});
+                }
             }
 
             // The model is kept in the browser: list what was cached, then load it again in a
@@ -50,9 +58,16 @@
             started = performance.now();
             const again = new Worker(new URL('describe-worker.js', dist), {type: 'module'});
             let downloaded = 0;
+            const config = {library: new URL('vendor/transformers.min.js', dist).href, model: 'onnx-community/Florence-2-base-ft'};
             again.onmessage = ({data}) => {
                 if (data.type === 'progress') {
                     downloaded = data.total;
+                } else if (data.type === 'translation') {
+                    // Translating a suggestion's text alone, in a fresh worker without the image
+                    // model, as the Translate button does.
+                    results.push({translateOnly: data.text, translateOnlyMs: Math.round(performance.now() - started)});
+                    started = performance.now();
+                    again.postMessage({type: 'load', id: 2, config, image: true, translations: []});
                 } else if (data.type === 'ready') {
                     results.push({reloadedMs: Math.round(performance.now() - started), reloadProgressMB: Math.round(downloaded / 1e6)});
                     finish('done');
@@ -61,9 +76,9 @@
                     finish('error');
                 }
             };
-            again.postMessage({type: 'load', config: {library: new URL('vendor/transformers.min.js', dist).href, model: 'onnx-community/Florence-2-base-ft'}});
+            again.postMessage({type: 'translate', id: 1, config, text: 'Two cats laying on a pink blanket on a couch.', model: TRANSLATION});
         } else if (data.type === 'description') {
-            pending.resolve({text: data.text, fresh: data.fresh});
+            pending.resolve({text: data.text, fresh: data.fresh, translated: data.translated});
         } else if (data.type === 'error') {
             results.push({error: data.message});
             pending ? pending.reject(new Error(data.message)) : finish('error');
@@ -73,7 +88,7 @@
         results.push({error: event.message || 'worker failed to start'});
         finish('error');
     };
-    worker.postMessage({type: 'load', config: {
+    worker.postMessage({type: 'load', id: 0, image: true, translations: [], config: {
         library: new URL('vendor/transformers.min.js', dist).href,
         model: 'onnx-community/Florence-2-base-ft',
     }});
