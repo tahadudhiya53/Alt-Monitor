@@ -1,0 +1,83 @@
+{#
+ # AltMonitor's box in Craft's asset editor sidebar (a page or a slide-out): the image's alt
+ # text status, the suggestion waiting for it, and describing the image. “Use” only fills the
+ # editor's Alt Text field; the asset is saved the usual way. Rendered by AssetsUi::sidebarHtml().
+ # Every button is type="button": the box sits inside the editor's form and must never submit it.
+ #}
+{% import 'alt-monitor/_macros' as macros %}
+{% do view.registerTranslations('alt-monitor', [
+    'Added to the Alt Text field. Save the asset to keep it.',
+    'Approved and saved to the image.',
+    'Suggestion rejected.',
+    'The suggestion could not be approved.',
+    'The suggestion could not be rejected.',
+    'Making a new suggestion. It shows here when it’s ready.',
+    'The suggestion could not be generated.',
+]) %}
+<fieldset class="altmonitor-sidebar" data-altmonitor-sidebar
+          data-asset-id="{{ asset.id }}" data-site-id="{{ asset.siteId }}" data-audit-site-id="{{ auditSiteId }}"
+          {% if editUrl %}data-edit-url="{{ editUrl }}"{% endif %}
+          {% if static %}data-static{% endif %}>
+    <legend class="h6">{{ 'Alt text check'|t('alt-monitor') }}</legend>
+    <div class="meta altmonitor-sidebar-body">
+        {% if not item %}
+            <p class="altmonitor-sidebar-hint">
+                {{ 'Not checked yet.'|t('alt-monitor') }}
+                {{ auditOnSave
+                    ? 'It is checked when the asset is saved.'|t('alt-monitor')
+                    : 'Run a scan in AltMonitor to check it.'|t('alt-monitor') }}
+            </p>
+        {% else %}
+            <div class="altmonitor-sidebar-status">
+                {% if item.decorative %}
+                    <span class="status-label teal"><span class="status"></span><span class="status-label-text">{{ 'Decorative'|t('alt-monitor') }}</span></span>
+                    <p class="altmonitor-sidebar-hint">{{ 'Screen readers skip it, so no alt text is needed.'|t('alt-monitor') }}</p>
+                {% else %}
+                    {{ macros.altStatus(item.status) }}
+                    {% if item.status.value == 'missing' %}
+                        <p class="altmonitor-sidebar-hint">{{ 'Screen readers can’t tell people what this image shows.'|t('alt-monitor') }}</p>
+                    {% elseif item.issues is not empty %}
+                        <p class="altmonitor-sidebar-hint">{{ item.issues|map(issue => issue.label())|join(', ') }}</p>
+                    {% endif %}
+                {% endif %}
+            </div>
+
+            {% if suggestion %}
+                <div class="altmonitor-sidebar-suggestion">
+                    <span class="altmonitor-suggest-label">{{ 'Suggestion'|t('alt-monitor') }}</span>
+                    <p class="altmonitor-sidebar-text">{{ suggestion.suggestedAlt }}</p>
+                    {{ macros.translationNote(suggestion, translator ?? null) }}
+                    <div class="altmonitor-sidebar-actions">
+                        {% if canSave %}
+                            <button type="button" class="btn small" data-sidebar-use="{{ suggestion.id }}" data-text="{{ suggestion.suggestedAlt }}" data-can-approve="{{ canApprove ? '1' : '0' }}">{{ 'Use'|t('alt-monitor') }}</button>
+                        {% endif %}
+                        {% if canDismiss %}
+                            <button type="button" class="btn small" data-sidebar-dismiss="{{ suggestion.id }}">{{ 'Reject'|t('alt-monitor') }}</button>
+                        {% endif %}
+                    </div>
+                    <p class="altmonitor-sidebar-hint" data-sidebar-note role="status">{{ 'Check it matches the image.'|t('alt-monitor') }}</p>
+                </div>
+            {% endif %}
+
+            {% if describer or canGenerateOnServer or pageUrl %}
+                <div class="altmonitor-sidebar-actions">
+                    {% if describer %}
+                        <button type="button" class="btn small" data-sidebar-describe>
+                            {{ item.suggestion ? 'Describe again'|t('alt-monitor') : 'Describe the image'|t('alt-monitor') }}
+                        </button>
+                    {% elseif canGenerateOnServer %}
+                        <button type="button" class="btn small" data-sidebar-generate>
+                            {{ item.suggestion ? 'Get a new suggestion'|t('alt-monitor') : 'Get a suggestion'|t('alt-monitor') }}
+                        </button>
+                    {% endif %}
+                    {% if pageUrl %}
+                        <a class="go altmonitor-sidebar-link" href="{{ pageUrl }}">{{ 'Open in AltMonitor'|t('alt-monitor') }}</a>
+                    {% endif %}
+                </div>
+            {% endif %}
+        {% endif %}
+    </div>
+    {% if translator and item %}
+        {% include 'alt-monitor/_describer' with {inSidebar: true, describer: translator} %}
+    {% endif %}
+</fieldset>
