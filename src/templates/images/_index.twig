@@ -84,6 +84,10 @@
                     <a class="altmonitor-clear" href="{{ url('alt-monitor/images', {status: criteria.status.value ?? null}) }}">{{ 'Clear filters'|t('alt-monitor') }}</a>
                 {% endif %}
                 <noscript><button type="submit" class="btn">{{ 'Filter'|t('alt-monitor') }}</button></noscript>
+                {% if page.total > 0 %}
+                    {# The images these filters show, on every page, for people working outside Craft. #}
+                    <a class="btn" data-icon="download" id="altmonitor-export" href="{{ url('alt-monitor/images/export', criteria.params({page: null})) }}">{{ 'Export CSV'|t('alt-monitor') }}</a>
+                {% endif %}
             </div>
         </div>
 

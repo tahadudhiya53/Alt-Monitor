@@ -315,6 +315,53 @@ class Audits extends Component
      */
     public function page(ListCriteria $criteria, array $volumeIds, ?User $user): AuditPage
     {
+        $query = $this->listQuery($criteria, $volumeIds, $user);
+        $total = (int)$query->count('[[audits.id]]');
+        $rows = $query
+            ->select(['audits.*'])
+            ->orderBy(['assets.filename' => SORT_ASC, 'audits.id' => SORT_ASC])
+            ->offset($criteria->offset())
+            ->limit(ListCriteria::PER_PAGE)
+            ->all();
+
+        return new AuditPage($this->items($rows, $user), $total, $criteria->page, ListCriteria::PER_PAGE);
+    }
+
+    /**
+     * Every image the list shows with these filters, on all its pages, in the list's order: what
+     * the CSV export writes. Loaded a batch at a time, so a large site doesn't fill memory.
+     *
+     * @param list<int> $volumeIds Volumes the user may view.
+     * @return \Generator<int, AuditItem>
+     */
+    public function all(ListCriteria $criteria, array $volumeIds, ?User $user, int $batchSize = 200): \Generator
+    {
+        $query = $this->listQuery($criteria, $volumeIds, $user)
+            ->select(['audits.*'])
+            ->orderBy(['assets.filename' => SORT_ASC, 'audits.id' => SORT_ASC])
+            ->limit($batchSize);
+
+        for ($offset = 0; ; $offset += $batchSize) {
+            $rows = (clone $query)->offset($offset)->all();
+
+            foreach ($this->items($rows, $user) as $item) {
+                yield $item;
+            }
+
+            if (count($rows) < $batchSize) {
+                return;
+            }
+        }
+    }
+
+    /**
+     * The list's rows with its filters and the user's visibility applied, unordered and unpaged.
+     * Aliases: `audits`, `assets`, `elements_sites`, `suggestions`.
+     *
+     * @param list<int> $volumeIds
+     */
+    private function listQuery(ListCriteria $criteria, array $volumeIds, ?User $user): Query
+    {
         $query = (new Query())
             ->from(['audits' => AuditRecord::TABLE])
             ->innerJoin(['assets' => Table::ASSETS], '[[assets.id]] = [[audits.assetId]]')
@@ -340,15 +387,7 @@ class Audits extends Component
 
         $query->andWhere($this->visibleCondition($user));
 
-        $total = (int)$query->count('[[audits.id]]');
-        $rows = $query
-            ->select(['audits.*'])
-            ->orderBy(['assets.filename' => SORT_ASC, 'audits.id' => SORT_ASC])
-            ->offset($criteria->offset())
-            ->limit(ListCriteria::PER_PAGE)
-            ->all();
-
-        return new AuditPage($this->items($rows, $user), $total, $criteria->page, ListCriteria::PER_PAGE);
+        return $query;
     }
 
     /**

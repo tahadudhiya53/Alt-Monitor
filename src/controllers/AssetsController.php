@@ -73,6 +73,36 @@ class AssetsController extends Controller
     }
 
     /**
+     * The list as a CSV file, with the same filters (all pages, not just one): for content teams
+     * who write alt text outside the control panel. Only reads, so a plain link (GET) does it.
+     *
+     * @throws BadRequestHttpException if a filter is malformed.
+     */
+    public function actionExport(): Response
+    {
+        try {
+            $criteria = ListCriteria::fromParams($this->request->getQueryParams());
+        } catch (InvalidArgumentException $exception) {
+            throw new BadRequestHttpException($exception->getMessage(), 0, $exception);
+        }
+
+        $export = AltMonitor::getInstance()->getImageExport();
+        // Kept in memory up to 2 MB, then in a temporary file.
+        $handle = fopen('php://temp', 'w+');
+
+        if ($handle === false) {
+            throw new \RuntimeException('Could not open a temporary stream for the export.');
+        }
+
+        $export->write($criteria, $this->user(), $handle);
+        rewind($handle);
+
+        return $this->response->sendStreamAsFile($handle, $export->filename($criteria), [
+            'mimeType' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
+    /**
      * One image in one site: its audit, suggestion and where it is used.
      */
     public function actionView(int $assetId, int $siteId): Response

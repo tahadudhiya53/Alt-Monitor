@@ -75,6 +75,7 @@ class ControllerSecurityTest extends TestCase
     {
         yield 'dashboard' => [DashboardController::class, 'dashboard', 'index'];
         yield 'images' => [AssetsController::class, 'assets', 'index'];
+        yield 'images export' => [AssetsController::class, 'assets', 'export'];
         yield 'suggestions' => [SuggestionsController::class, 'suggestions', 'index'];
         yield 'settings' => [SettingsController::class, 'settings', 'index'];
         yield 'image model' => [ModelController::class, 'model', 'index'];
@@ -183,6 +184,11 @@ class ControllerSecurityTest extends TestCase
         $html = self::html($this->runAction(AssetsController::class, 'assets', 'index', [], method: 'GET', json: false));
         self::assertStringContainsString('visible.jpg', $html);
         self::assertStringNotContainsString('hidden.jpg', $html);
+
+        // Nor exported: the CSV has the list's rows, no more.
+        $files = array_column(array_slice(self::csv($this->runAction(AssetsController::class, 'assets', 'export', [], method: 'GET', json: false))['rows'], 1), 0);
+        self::assertContains($visible->filename, $files);
+        self::assertNotContains($hidden->filename, $files);
 
         try {
             $this->runAction(AssetsController::class, 'assets', 'view', ['assetId' => $hidden->id, 'siteId' => self::$primarySiteId], method: 'GET', json: false);

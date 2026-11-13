@@ -50,7 +50,7 @@ Prefer to write alt text yourself? Use **Images**: type it in the list and click
 | Screen | What you do there |
 |---|---|
 | **Dashboard** | See how many images need alt text, start scans, start describing. |
-| **Images** | Every checked image with its status. Filter by status, volume, site, usage or suggestion; search by file name or title. Type alt text in the list, or select images to describe, approve or mark as decorative. |
+| **Images** | Every checked image with its status. Filter by status, volume, site, usage or suggestion; search by file name or title. Type alt text in the list, or select images to describe, approve or mark as decorative. **Export CSV** downloads every image the filters show, to share with a content team. |
 | **Image page** (click an image) | The image, its alt text and status, the suggestion (**Use this** / **Reject**), **Describe the image**, **Mark as decorative**, and where the image is used. |
 | **Suggestions** | Everything waiting for review. Edit, **Approve** or **Reject**; **Approve selected** or **Approve all on this page**. Keyboard: Ctrl/⌘ + Enter approves, Esc rejects. |
 | **Image model** | Download or remove the image model and the translation models in this browser. |

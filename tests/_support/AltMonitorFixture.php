@@ -311,6 +311,32 @@ trait AltMonitorFixture
      * A page's block rendered with the variables its controller gave it. The control panel
      * layout around it needs a web session, which the console app running tests can't have.
      */
+    /**
+     * A CSV download: its file name, whether it starts with a UTF-8 BOM, and its rows.
+     *
+     * @return array{filename: string, bom: bool, rows: list<list<string>>}
+     */
+    protected static function csv(?Response $response): array
+    {
+        Assert::assertNotNull($response);
+        Assert::assertIsArray($response->stream);
+        [$handle, $begin, $end] = $response->stream;
+        fseek($handle, $begin);
+        $body = (string)stream_get_contents($handle, $end - $begin + 1);
+        preg_match('/filename="([^"]+)"/', (string)$response->getHeaders()->get('Content-Disposition'), $match);
+        $bom = str_starts_with($body, "\u{FEFF}");
+        $lines = fopen('php://memory', 'w+');
+        fwrite($lines, $bom ? substr($body, 3) : $body);
+        rewind($lines);
+        $rows = [];
+
+        while (($row = fgetcsv($lines, null, ',', '"', '')) !== false) {
+            $rows[] = array_map('strval', $row);
+        }
+
+        return ['filename' => $match[1] ?? '', 'bom' => $bom, 'rows' => $rows];
+    }
+
     protected static function html(?Response $response, string $block = 'content'): string
     {
         Assert::assertNotNull($response);

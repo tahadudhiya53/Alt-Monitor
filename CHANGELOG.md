@@ -14,6 +14,7 @@
 - Added **Translate into {language}** for English suggestions on non-English sites, which translates just the text.
 - Added a suggestion language per site (Settings → Languages), by default the site's own language.
 - Added the Images list: filters, search, inline editing, **Save changes**, and bulk describe, approve and mark as decorative.
+- Added **Export CSV** on the Images list: every image the filters show (all pages) with its status, issues, current and suggested alt text, usage, links and an empty **New alt text** column, for content teams working outside Craft.
 - Added an image page with the suggestion, describing, decorative toggle and where the image is used.
 - Added the Suggestions page: edit, approve, reject, **Approve selected**, **Approve all on this page**, and keyboard shortcuts.
 - Added live hints while typing alt text, using the same checks as scans.
@@ -33,6 +34,7 @@
 - Alt text is written only through Craft's element saving, after checking the user may save the asset.
 - Every action checks its permission; changes need a POST request with Craft's CSRF token.
 - Images are served to the browser only to users who may view them.
+- The CSV export has only the images the user may see in the list, and cells that start like a spreadsheet formula are written as plain text.
 - Ollama is only contacted on allowed hosts, never on metadata or other blocked addresses, without redirects, and its answers aren't logged.
 - `allowedAiHosts` is read from the config file only and never saved to project config.
 - The Image model page only links back to AltMonitor pages or Craft's asset editor, also where the control panel is reached through `index.php?p=`, and never through `..` or encoded slashes.

@@ -11,6 +11,7 @@ use Tahadudhiya\AltMonitor\models\ImageContext;
 use Tahadudhiya\AltMonitor\models\Settings;
 use Tahadudhiya\AltMonitor\services\AltTextAnalyzer;
 use Tahadudhiya\AltMonitor\services\AltTextEditor;
+use Tahadudhiya\AltMonitor\services\ImageExport;
 use Tahadudhiya\AltMonitor\services\SuggestionGenerator;
 
 /**
@@ -117,6 +118,17 @@ class RulesTest extends TestCase
     {
         self::assertSame('A wooden jetty at dawn', AltTextEditor::sanitize("  A <b>wooden</b>\n jetty&nbsp;at dawn\u{200B} "));
         self::assertSame('Fish & chips', AltTextEditor::sanitize('Fish &amp; chips'));
+    }
+
+    public function testExportedCellsNeverRunAsSpreadsheetFormulas(): void
+    {
+        foreach (['=HYPERLINK("https://example.com")', '+1', '-2+3', '@SUM(A1)', "\tA tab", "\rA return"] as $text) {
+            self::assertSame("'" . $text, ImageExport::cell($text), $text);
+        }
+
+        foreach (['A heron', '', 'Price: =5', "Owl's nest", '2024 harbour'] as $text) {
+            self::assertSame($text, ImageExport::cell($text), $text);
+        }
     }
 
     public function testByDefaultSuggestionsDescribeTheImageNotItsFileName(): void

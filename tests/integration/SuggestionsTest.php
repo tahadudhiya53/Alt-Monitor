@@ -368,6 +368,55 @@ class SuggestionsTest extends TestCase
         self::assertNull(self::altOf($notSelected));
     }
 
+    public function testTheImageListExportsEveryFilteredImageAsCsv(): void
+    {
+        $missing = self::savedImage('export-missing.jpg');
+        self::savedEntry('A page using it', [self::IMAGES => [$missing->id]]);
+        $formula = self::savedImage('export-formula.jpg', '=HYPERLINK("https://example.com","Click")');
+        $good = self::savedImage('export-good.jpg', 'A grey heron standing on a wooden post');
+        self::plugin()->getScans()->start(ScanType::FULL);
+        $this->runJobs();
+        self::plugin()->getSuggestions()->generate((int)$missing->id, self::$primarySiteId);
+        $this->editor();
+        $export = fn(array $params): array => self::csv($this->runAction(AssetsController::class, 'assets', 'export', $params, method: 'GET', json: false));
+
+        // The Missing filter: those images only, on every page, with what to write next to them.
+        $csv = $export(['status' => 'missing', 'search' => 'export-']);
+        self::assertTrue($csv['bom']);
+        self::assertMatchesRegularExpression('/^alt-text-missing-\d{4}-\d{2}-\d{2}\.csv$/', $csv['filename']);
+        [$headers, $row] = $csv['rows'] + [1 => []];
+        self::assertCount(2, $csv['rows']);
+        self::assertSame(['File name', 'Title', 'Volume', 'Site', 'Status', 'Issues', 'Current alt text', 'Decorative', 'Suggested alt text', 'Content usage', 'Image URL', 'Link in AltMonitor', 'Last checked', 'New alt text'], $headers);
+        $cells = array_combine($headers, $row);
+        self::assertSame($missing->filename, $cells['File name']);
+        self::assertSame('Missing', $cells['Status']);
+        self::assertSame('', $cells['Current alt text']);
+        self::assertSame((string)self::plugin()->getSuggestions()->get((int)$missing->id, self::$primarySiteId)?->suggestedAlt, $cells['Suggested alt text']);
+        self::assertNotSame('', $cells['Suggested alt text']);
+        self::assertSame('Used in 1 place', $cells['Content usage']);
+        self::assertStringEndsWith('alt-monitor/images/' . $missing->id . '/' . self::$primarySiteId, $cells['Link in AltMonitor']);
+        self::assertSame('', $cells['New alt text']);
+
+        // All statuses: every matching image, and alt text that looks like a formula stays text.
+        $all = $export(['search' => 'export-']);
+        self::assertMatchesRegularExpression('/^alt-text-all-/', $all['filename']);
+        $byFile = array_column(array_slice($all['rows'], 1), null, 0);
+        self::assertSame([$formula->filename, $good->filename, $missing->filename], array_keys($byFile));
+        self::assertSame('\'=HYPERLINK("https://example.com","Click")', $byFile[$formula->filename][6]);
+        self::assertSame('Good', $byFile[$good->filename][4]);
+
+        // The list offers it with the same filters.
+        $page = self::html($this->runAction(AssetsController::class, 'assets', 'index', ['status' => 'missing'], method: 'GET', json: false));
+        self::assertStringContainsString('alt-monitor/images/export?status=missing', $page);
+
+        // Nothing matching: only the headers.
+        self::assertCount(1, $export(['search' => 'no-such-file'])['rows']);
+
+        // A malformed filter is refused, as on the list.
+        $this->expectException(\yii\web\BadRequestHttpException::class);
+        $export(['status' => 'nope']);
+    }
+
     public function testTheImageListSavesChangedRowsAndApprovesPerSelectedRow(): void
     {
         $typed = self::savedImage('IMG_7000.jpg');

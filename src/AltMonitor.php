@@ -32,6 +32,7 @@ use Tahadudhiya\AltMonitor\services\AssetScanner;
 use Tahadudhiya\AltMonitor\services\AssetsUi;
 use Tahadudhiya\AltMonitor\services\Audits;
 use Tahadudhiya\AltMonitor\services\ContentUsageScanner;
+use Tahadudhiya\AltMonitor\services\ImageExport;
 use Tahadudhiya\AltMonitor\services\Scans;
 use Tahadudhiya\AltMonitor\services\SuggestionGenerator;
 use Tahadudhiya\AltMonitor\services\Suggestions;
@@ -54,6 +55,7 @@ use yii\base\Event;
  * @property-read AssetScanner $assetScanner
  * @property-read AssetsUi $assetsUi
  * @property-read Audits $audits
+ * @property-read ImageExport $imageExport
  * @property-read ContentUsageScanner $contentUsage
  * @property-read Scans $scans
  * @property-read SuggestionGenerator $suggestionGenerator
@@ -96,6 +98,7 @@ class AltMonitor extends Plugin
                 'assetsUi' => ['class' => AssetsUi::class],
                 'audits' => ['class' => Audits::class],
                 'contentUsage' => ['class' => ContentUsageScanner::class],
+                'imageExport' => ['class' => ImageExport::class],
                 'scans' => ['class' => Scans::class],
                 'suggestionGenerator' => static fn(): SuggestionGenerator => new SuggestionGenerator(self::getInstance()->getAnalyzer()),
                 'suggestions' => ['class' => Suggestions::class],
@@ -129,6 +132,7 @@ class AltMonitor extends Plugin
         Event::on(UrlManager::class, UrlManager::EVENT_REGISTER_CP_URL_RULES, static function(RegisterUrlRulesEvent $event): void {
             $event->rules['alt-monitor'] = 'alt-monitor/dashboard/index';
             $event->rules['alt-monitor/images'] = 'alt-monitor/assets/index';
+            $event->rules['alt-monitor/images/export'] = 'alt-monitor/assets/export';
             $event->rules['alt-monitor/images/<assetId:\d+>/<siteId:\d+>'] = 'alt-monitor/assets/view';
             $event->rules['alt-monitor/suggestions'] = 'alt-monitor/suggestions/index';
             $event->rules['alt-monitor/settings'] = 'alt-monitor/settings/index';
@@ -305,6 +309,12 @@ class AltMonitor extends Plugin
     {
         /** @var Audits */
         return $this->get('audits');
+    }
+
+    public function getImageExport(): ImageExport
+    {
+        /** @var ImageExport */
+        return $this->get('imageExport');
     }
 
     public function getContentUsage(): ContentUsageScanner

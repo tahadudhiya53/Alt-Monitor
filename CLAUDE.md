@@ -45,6 +45,7 @@ Queue job (orchestration: one bounded batch, then push the next)
 | `suggestions` | `services/Suggestions` | Only writer of `altmonitor_suggestions`; reserve/queue, generate, approve, reject |
 | `altTextEditor` | `services/AltTextEditor` | The only code that writes alt text to an asset (`Elements::saveElement`) |
 | `assetsUi` | `services/AssetsUi` | Craft's own asset screens: the editor sidebar box (`_sidebar.twig`) and the Assets index column. Never writes |
+| `imageExport` | `services/ImageExport` | The Images list as CSV (`Audits::all()`: the list's query, every page, batches of 200). Never writes |
 | `aiProviders` | `services/AiProviders` | Builds the (Ollama) provider from settings; `EVENT_DEFINE_PROVIDER` lets code replace it; `browserConfig()` for the browser; `describerConfig()` (Describe buttons, null with Ollama) and `translatorConfig()` (Translate, also with Ollama) |
 
 ### Describing images (default: in the browser)
@@ -143,7 +144,7 @@ suggestion walk), `ScanContentUsageJob` (relations phase, then reference tags ph
 suggestions, 5 per job, TTR scaled by `aiTimeout`).
 
 Controllers: `Dashboard` (index, progress JSON), `Model` (the image model page), `Scan` (start),
-`Assets` (index, view, check, save, decorative, bulk: save / approve / generate, sidebar: the
+`Assets` (index, export, view, check, save, decorative, bulk: save / approve / generate, sidebar: the
 editor box's HTML again), `Suggestions` (index, approve, reject, bulk-approve, image, next, store,
 translate, regenerate, generate-all), `Settings` (index, save, test-connection). Shared input reading in the
 `RequestInput` trait. Plugin class registers permissions, CP URL rules (the Image model nav item
@@ -363,6 +364,13 @@ lock references).
   `data-altmonitor-check="assetId-siteId"` get live hints (`liveCheck()`, 400 ms debounce, only
   the latest answer counts) from `assets/check`, which runs `AltTextAnalyzer` on the sanitized
   text and saves nothing; rules stay in PHP only, never copied to JS.
+- **CSV export** (`alt-monitor/images/export` → `assets/export`, GET, view permission only): the
+  Images list's filters (`ListCriteria::fromParams`) over `Audits::listQuery()`, the same query and
+  `visibleCondition()` as the page, so it never has rows the list wouldn't show. Streamed to
+  `php://temp` and sent with `sendStreamAsFile`; UTF-8 BOM for Excel; every cell through
+  `ImageExport::cell()` (a leading `=` `+` `-` `@` tab or CR gets an apostrophe: formula
+  injection). Usage is “Not found in content”, never “unused”. No import yet: the empty “New alt
+  text” column is for the content team.
 - Suggestions page: the content is wrapped in `[data-altmonitor-review]`; when its last row
   leaves, `loadNextSuggestions()` fetches the same URL, swaps the wrapper's HTML, runs
   `initLists(root)` (every list behaviour must be set up there, not on `document` alone) and
