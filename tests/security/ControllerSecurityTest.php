@@ -45,6 +45,7 @@ class ControllerSecurityTest extends TestCase
         yield 'reject' => [SuggestionsController::class, 'suggestions', 'reject', AltMonitor::PERMISSION_APPROVE];
         yield 'bulk approve' => [SuggestionsController::class, 'suggestions', 'bulk-approve', AltMonitor::PERMISSION_APPROVE];
         yield 'regenerate' => [SuggestionsController::class, 'suggestions', 'regenerate', AltMonitor::PERMISSION_GENERATE];
+        yield 'translate' => [SuggestionsController::class, 'suggestions', 'translate', AltMonitor::PERMISSION_GENERATE];
         yield 'generate all' => [SuggestionsController::class, 'suggestions', 'generate-all', AltMonitor::PERMISSION_GENERATE];
         yield 'save settings' => [SettingsController::class, 'settings', 'save', AltMonitor::PERMISSION_MANAGE_SETTINGS];
         yield 'test connection' => [SettingsController::class, 'settings', 'test-connection', AltMonitor::PERMISSION_MANAGE_SETTINGS];
@@ -121,9 +122,13 @@ class ControllerSecurityTest extends TestCase
         yield 'non-numeric asset ID' => ['save', ['assetId' => '1 OR 1=1', 'siteId' => '1', 'alt' => 'x']];
         yield 'negative site ID' => ['save', ['assetId' => '1', 'siteId' => '-1', 'alt' => 'x']];
         yield 'alt text as an array' => ['save', ['assetId' => '1', 'siteId' => '1', 'alt' => ['x']]];
-        yield 'malformed row key' => ['bulk', ['intent' => 'save', 'selected' => ['1-1; DROP TABLE']]];
+        yield 'checked alt text as an array' => ['check', ['assetId' => '1', 'siteId' => '1', 'alt' => ['x']]];
+        yield 'malformed row key' => ['bulk', ['intent' => 'approve', 'selected' => ['1-1; DROP TABLE']]];
+        yield 'malformed alt text key' => ['bulk', ['intent' => 'save', 'alt' => ['1-1; DROP TABLE' => 'x']]];
+        yield 'alt text as an array in a row' => ['bulk', ['intent' => 'save', 'alt' => ['1-1' => ['x']]]];
         yield 'unknown bulk intent' => ['bulk', ['intent' => 'delete', 'selected' => ['1-1']]];
-        yield 'too many rows' => ['bulk', ['intent' => 'save', 'selected' => array_map(static fn(int $i): string => "$i-1", range(1, 51))]];
+        yield 'too many rows' => ['bulk', ['intent' => 'approve', 'selected' => array_map(static fn(int $i): string => "$i-1", range(1, 51))]];
+        yield 'too many alt texts' => ['bulk', ['intent' => 'save', 'alt' => array_fill_keys(array_map(static fn(int $i): string => "$i-1", range(1, 51)), 'x')]];
     }
 
     /**
@@ -136,6 +141,30 @@ class ControllerSecurityTest extends TestCase
 
         $this->expectException(BadRequestHttpException::class);
         $this->runAction(AssetsController::class, 'assets', $action, $params);
+    }
+
+    public function testAnEmptyImageListOffersAScanOnlyToThoseWhoMayRunOne(): void
+    {
+        // No volume to view: nothing checked yet, as far as this user can tell.
+        $page = fn() => self::html($this->runAction(AssetsController::class, 'assets', 'index', [], method: 'GET', json: false));
+
+        $this->signIn(false, [...self::VIEW, AltMonitor::PERMISSION_RUN_SCANS]);
+        $html = $page();
+        self::assertStringContainsString('No images checked yet.', $html);
+        self::assertStringContainsString('alt-monitor/scan/start', $html);
+        self::assertStringContainsString('Scan all images', $html);
+
+        $this->signIn(false, self::VIEW);
+        $html = $page();
+        self::assertStringContainsString('Someone who can run scans', $html);
+        self::assertStringNotContainsString('alt-monitor/scan/start', $html);
+
+        // With a scan on its way, where to watch it instead of a second one.
+        AltMonitor::getInstance()->getScans()->start(ScanType::FULL);
+        $this->signIn(false, [...self::VIEW, AltMonitor::PERMISSION_RUN_SCANS]);
+        $html = $page();
+        self::assertStringContainsString('Scanning. Images appear here', $html);
+        self::assertStringNotContainsString('alt-monitor/scan/start', $html);
     }
 
     public function testOnlyImagesInVolumesTheUserMayViewAreShown(): void
@@ -158,6 +187,13 @@ class ControllerSecurityTest extends TestCase
         try {
             $this->runAction(AssetsController::class, 'assets', 'view', ['assetId' => $hidden->id, 'siteId' => self::$primarySiteId], method: 'GET', json: false);
             self::fail('An image in a volume the user may not view was shown.');
+        } catch (\yii\web\NotFoundHttpException) {
+        }
+
+        // Nor graded while typing: the check answers only for images the user may view.
+        try {
+            $this->runAction(AssetsController::class, 'assets', 'check', ['assetId' => $hidden->id, 'siteId' => self::$primarySiteId, 'alt' => 'hidden.jpg']);
+            self::fail('Alt text was checked for an image in a volume the user may not view.');
         } catch (\yii\web\NotFoundHttpException) {
         }
 
@@ -255,7 +291,7 @@ class ControllerSecurityTest extends TestCase
         self::assertNull(AltMonitor::getInstance()->getSuggestions()->get((int)$image->id, self::$primarySiteId));
     }
 
-    public function testTheImageModelPageExplainsTheDownloadAndOnlyLeadsBackIntoAltMonitor(): void
+    public function testTheImageModelPageExplainsTheDownloadAndOnlyLeadsBackIntoAltMonitorOrTheAssetEditor(): void
     {
         $this->signIn(false, self::VIEW);
 
@@ -270,7 +306,8 @@ class ControllerSecurityTest extends TestCase
         $html = $page([]);
 
         // What is downloaded, from whom, what they see, where it is kept; asked before downloading.
-        foreach (['huggingface.co', 'cdn.jsdelivr.net', 'about 304 MB', 'IP address', 'Your privacy (GDPR)', 'Remove from this browser', 'https://huggingface.co/privacy'] as $text) {
+        // The image model and runtime only: translation models are separate downloads.
+        foreach (['huggingface.co', 'cdn.jsdelivr.net', 'Download (304 MB)', 'IP address', 'Your privacy (GDPR)', 'Remove from this browser', 'https://huggingface.co/privacy'] as $text) {
             self::assertStringContainsString($text, $html);
         }
 
@@ -281,11 +318,56 @@ class ControllerSecurityTest extends TestCase
         $back = \craft\helpers\UrlHelper::cpUrl('alt-monitor/images', ['status' => 'missing']);
         self::assertStringContainsString('data-return="' . htmlspecialchars($back) . '"', $page(['return' => $back]));
 
-        $base = strtok(\craft\helpers\UrlHelper::cpUrl('alt-monitor'), '?');
+        // Craft's asset editor, where AltMonitor's sidebar box describes images.
+        $editor = \craft\helpers\UrlHelper::cpUrl('assets/edit/12-heron');
+        self::assertStringContainsString('data-return="' . htmlspecialchars($editor) . '"', $page(['return' => $editor]));
 
-        foreach (['https://evil.example/admin/alt-monitor', $base . '-evil', 'javascript:alert(1)', '//evil.example', $base . "/x\n"] as $elsewhere) {
+        $base = strtok(\craft\helpers\UrlHelper::cpUrl('alt-monitor'), '?');
+        $assets = strtok(\craft\helpers\UrlHelper::cpUrl('assets/edit'), '?');
+
+        $altMonitor = \craft\helpers\UrlHelper::cpUrl('alt-monitor');
+        $elsewhereList = [
+            'https://evil.example/admin/alt-monitor', $base . '-evil', 'javascript:alert(1)', '//evil.example', $base . "/x\n", $assets, $assets . 'or',
+            strtok(\craft\helpers\UrlHelper::cpUrl('users'), '?'),
+            // Climbing out of AltMonitor's pages, as such or encoded.
+            $altMonitor . '/../users', $altMonitor . '/%2e%2e/users', $altMonitor . '%2F..%2Fusers',
+        ];
+
+        foreach ($elsewhereList as $elsewhere) {
             self::assertStringNotContainsString('data-return', $page(['return' => $elsewhere]), $elsewhere);
         }
+
+        // Where the control panel is reached through “index.php?p=…”, other pages on that same
+        // index.php don't pass; AltMonitor's own still do.
+        $general = Craft::$app->getConfig()->getGeneral();
+        [$omit, $pathInfo] = [$general->omitScriptNameInUrls, $general->usePathInfo];
+        $general->omitScriptNameInUrls = false;
+        $general->usePathInfo = false;
+
+        try {
+            $queryStyle = \craft\helpers\UrlHelper::cpUrl('alt-monitor/images', ['status' => 'missing']);
+            self::assertStringContainsString('?p=', $queryStyle);
+            self::assertStringContainsString('data-return', $page(['return' => $queryStyle]));
+            $script = strtok($queryStyle, '?');
+
+            foreach ([$script . '?p=admin/users', $script . '?p=actions/users/logout', $script . '?p=admin/alt-monitorx'] as $elsewhere) {
+                self::assertStringNotContainsString('data-return', $page(['return' => $elsewhere]), $elsewhere);
+            }
+        } finally {
+            $general->omitScriptNameInUrls = $omit;
+            $general->usePathInfo = $pathInfo;
+        }
+
+        // Multi-site: Craft adds “site=” to control panel URLs. It is left out of the comparison,
+        // and the pages linked back keep theirs.
+        $withoutSite = [ModelController::class, 'withoutSite'];
+        self::assertSame('https://h/admin/alt-monitor', $withoutSite('https://h/admin/alt-monitor?site=en'));
+        self::assertSame('https://h/index.php?p=admin/alt-monitor', $withoutSite('https://h/index.php?p=admin/alt-monitor&site=en'));
+        self::assertSame('https://h/index.php?p=admin/alt-monitor', $withoutSite('https://h/index.php?site=en&p=admin/alt-monitor'));
+        self::assertSame('https://h/admin/assets/edit', $withoutSite('https://h/admin/assets/edit?site=fr'));
+        $images = \craft\helpers\UrlHelper::cpUrl('alt-monitor/images');
+        $withSite = $images . (str_contains($images, '?') ? '&' : '?') . 'site=en';
+        self::assertStringContainsString('data-return="' . htmlspecialchars($withSite) . '"', $page(['return' => $withSite]));
 
         self::assertStringEndsWith('alt-monitor/image-model', strtok(AltMonitor::getInstance()->getAiProviders()->browserConfig()['setupUrl'], '?'));
     }
@@ -334,6 +416,42 @@ class ControllerSecurityTest extends TestCase
         self::assertSame([(int)self::$shared->id], $walk->volumeIds);
     }
 
+    public function testCraftsAssetScreensShowNothingOfAltMonitorWithoutItsViewPermission(): void
+    {
+        $image = self::savedImage('IMG_0600.jpg');
+        $ui = AltMonitor::getInstance()->getAssetsUi();
+
+        $this->signIn(false, ['accessCp', ...self::assetPermissions()]);
+        self::assertSame('', $ui->sidebarHtml($image, false));
+        self::assertFalse($ui->userMayView());
+        self::assertArrayNotHasKey('altMonitorStatus', Craft::$app->getElementSources()->getAvailableTableAttributes(\craft\elements\Asset::class));
+
+        try {
+            $this->runAction(AssetsController::class, 'assets', 'sidebar', ['assetId' => (string)$image->id, 'siteId' => (string)self::$primarySiteId], method: 'GET');
+            self::fail('The sidebar box was served without the view permission.');
+        } catch (ForbiddenHttpException) {
+        }
+
+        // Viewing AltMonitor alone doesn't reach images in volumes the user may not view.
+        $this->signIn(false, self::VIEW);
+
+        try {
+            $this->runAction(AssetsController::class, 'assets', 'sidebar', ['assetId' => (string)$image->id, 'siteId' => (string)self::$primarySiteId], method: 'GET');
+            self::fail('The sidebar box was served for an image the user may not view.');
+        } catch (\yii\web\NotFoundHttpException) {
+        }
+
+        // Without permission to save the asset, or to approve, there is nothing to use or dismiss.
+        AltMonitor::getInstance()->getSuggestions()->storeDescription((int)$image->id, self::$primarySiteId, 'A heron in a pond', $this->signIn(true));
+        $sites = array_map(static fn($site): string => "editSite:$site->uid", Craft::$app->getSites()->getAllSites());
+        $this->signIn(false, [...self::VIEW, ...$sites, 'viewAssets:' . self::$shared->uid, 'viewPeerAssets:' . self::$shared->uid]);
+        $html = $ui->sidebarHtml($image, false);
+        self::assertStringContainsString('A heron in a pond', $html);
+        self::assertStringNotContainsString('data-sidebar-use=', $html);
+        self::assertStringNotContainsString('data-sidebar-dismiss=', $html);
+        self::assertStringNotContainsString('data-sidebar-describe', $html);
+    }
+
     public function testAUserWhoMayViewNoVolumeIsListedNoImages(): void
     {
         self::savedImage('IMG_0400.jpg');
@@ -353,7 +471,67 @@ class ControllerSecurityTest extends TestCase
         $references = AltMonitor::getInstance()->getContentUsage()->references((int)$image->id, user: $viewer);
 
         self::assertCount(1, $references);
-        self::assertSame('Content you may not view', $references[0]->label);
+        self::assertSame('Content you can’t see', $references[0]->label);
         self::assertNull($references[0]->cpEditUrl);
+    }
+
+    public function testListTotalsCountOnlyImagesTheUserMaySee(): void
+    {
+        $ids = [(int)self::savedImage('peer-one.jpg')->id, (int)self::savedImage('peer-two.jpg')->id];
+        AltMonitor::getInstance()->getScans()->start(ScanType::FULL);
+        $this->runJobs();
+        $audits = AltMonitor::getInstance()->getAudits();
+        $criteria = \Tahadudhiya\AltMonitor\models\ListCriteria::fromParams(['q' => 'peer-']);
+        $sites = array_map(static fn($site): string => "editSite:$site->uid", Craft::$app->getSites()->getAllSites());
+
+        // Someone else uploaded them: without viewPeerAssets they are neither shown nor counted.
+        $user = $this->signIn(false, [...self::VIEW, ...$sites, 'viewAssets:' . self::$shared->uid]);
+        $page = $audits->page($criteria, $audits->viewableVolumeIds($user), $user);
+        self::assertSame(0, $page->total);
+        self::assertSame([], $page->items);
+        // Nor handed to the browser to describe, nor counted for it.
+        self::assertSame([], array_filter($audits->needingSuggestions(0, 1000, $audits->viewableVolumeIds($user), $user), static fn(array $row): bool => in_array($row['assetId'], $ids, true)));
+        self::assertSame(0, count(array_intersect($ids, array_column($audits->needingSuggestions(0, 1000, $audits->viewableVolumeIds($user), $user), 'assetId'))));
+
+        $user = $this->signIn(false, [...self::VIEW, ...$sites, 'viewAssets:' . self::$shared->uid, 'viewPeerAssets:' . self::$shared->uid]);
+        self::assertSame(2, $audits->page($criteria, $audits->viewableVolumeIds($user), $user)->total);
+        self::assertCount(2, array_intersect($ids, array_column($audits->needingSuggestions(0, 1000, $audits->viewableVolumeIds($user), $user), 'assetId')));
+    }
+
+    public function testAnImageWithAltTextSharedByAllSitesCanBeEditedFromAnySiteTheUserMayEdit(): void
+    {
+        $other = array_values(array_filter(Craft::$app->getSites()->getAllSites(), static fn($site): bool => !$site->primary))[0] ?? null;
+
+        if ($other === null) {
+            self::markTestSkipped('Needs a second site.');
+        }
+
+        $shared = self::savedImage('shared-site.jpg');
+        $perSite = self::savedImage('per-site.jpg', null, self::$translated);
+        AltMonitor::getInstance()->getScans()->start(ScanType::FULL);
+        $this->runJobs();
+        $audits = AltMonitor::getInstance()->getAudits();
+        $volumes = [self::$shared, self::$translated];
+        $permissions = [...self::VIEW, AltMonitor::PERMISSION_EDIT_ALT, "editSite:$other->uid"];
+
+        foreach ($volumes as $volume) {
+            array_push($permissions, "viewAssets:$volume->uid", "viewPeerAssets:$volume->uid", "saveAssets:$volume->uid", "savePeerAssets:$volume->uid");
+        }
+
+        // The user may edit only the second site. Shared alt text is audited in the primary site,
+        // but Craft lets them edit it from theirs, so it is listed and can be saved.
+        $user = $this->signIn(false, $permissions);
+        $page = $audits->page(\Tahadudhiya\AltMonitor\models\ListCriteria::fromParams(['q' => 'site.jpg']), $audits->viewableVolumeIds($user), $user);
+        $listed = array_map(static fn($item): string => $item->asset->filename . '@' . $item->siteId, $page->items);
+        self::assertContains('shared-site.jpg@' . self::$primarySiteId, $listed);
+        self::assertNotContains('per-site.jpg@' . self::$primarySiteId, $listed, 'Per-site alt text in a site the user may not edit stays hidden.');
+        self::assertSame(count($listed), $page->total);
+        self::assertTrue($page->items[array_search('shared-site.jpg@' . self::$primarySiteId, $listed, true)]->canEdit);
+
+        AltMonitor::getInstance()->getAltTextEditor()->save((int)$shared->id, self::$primarySiteId, 'A harbour at dusk', $user);
+        self::assertSame('A harbour at dusk', Asset::find()->id($shared->id)->siteId($other->id)->status(null)->one()?->alt);
+
+        $this->expectException(\Tahadudhiya\AltMonitor\errors\AltTextException::class);
+        AltMonitor::getInstance()->getAltTextEditor()->save((int)$perSite->id, self::$primarySiteId, 'Not allowed', $user);
     }
 }

@@ -6,6 +6,7 @@ use Craft;
 use craft\base\Field;
 use craft\elements\Asset;
 use craft\elements\db\AssetQuery;
+use craft\elements\User;
 use Tahadudhiya\AltMonitor\AltMonitor;
 use yii\base\Component;
 
@@ -45,6 +46,76 @@ class AssetScanner extends Component
 
         foreach (Craft::$app->getVolumes()->getAllVolumes() as $volume) {
             if ($primary || $volume->altTranslationMethod !== Field::TRANSLATION_METHOD_NONE) {
+                $ids[] = (int)$volume->id;
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
+     * The site whose audit covers an asset's alt text as seen in a site: that site, or the primary
+     * site for a volume whose alt text is the same in every site.
+     */
+    public function auditSiteId(int $volumeId, int $siteId): int
+    {
+        // The same rule as volumeIds(), for one volume, without going through all of them: this
+        // runs for every asset in the Assets index and in the asset editor.
+        $volume = Craft::$app->getVolumes()->getVolumeById($volumeId);
+
+        return $volume !== null && $volume->altTranslationMethod !== Field::TRANSLATION_METHOD_NONE
+            ? $siteId
+            : (int)Craft::$app->getSites()->getPrimarySite()->id;
+    }
+
+    /**
+     * Whether a user may view, or save, an image as it is audited. Craft checks the asset's own
+     * site (the `editSite:` permission), but a volume whose alt text is the same in every site is
+     * audited in the primary site only, and its alt text can be edited from any site, so there the
+     * asset in any site the user may edit counts.
+     */
+    public function userMay(Asset $asset, User $user, bool $save = false): bool
+    {
+        $elements = Craft::$app->getElements();
+        $may = static fn(Asset $element): bool => $save ? $elements->canSave($element, $user) : $elements->canView($element, $user);
+
+        if ($may($asset)) {
+            return true;
+        }
+
+        $sites = Craft::$app->getSites();
+
+        if (!Craft::$app->getIsMultiSite() || !in_array((int)$asset->volumeId, $this->sharedAltVolumeIds(), true)) {
+            return false;
+        }
+
+        foreach ($sites->getAllSites() as $site) {
+            if ((int)$site->id === (int)$asset->siteId || !$user->can('editSite:' . $site->uid)) {
+                continue;
+            }
+
+            $other = Asset::find()->id($asset->id)->siteId($site->id)->status(null)->one();
+
+            if ($other instanceof Asset) {
+                return $may($other);
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The volumes whose alt text is the same in every site, so they are only audited in the
+     * primary site.
+     *
+     * @return list<int>
+     */
+    public function sharedAltVolumeIds(): array
+    {
+        $ids = [];
+
+        foreach (Craft::$app->getVolumes()->getAllVolumes() as $volume) {
+            if ($volume->altTranslationMethod === Field::TRANSLATION_METHOD_NONE) {
                 $ids[] = (int)$volume->id;
             }
         }
@@ -145,10 +216,17 @@ class AssetScanner extends Component
         }
     }
 
-    /** A hash of what an audit records, so changes to it can be told apart. */
+    /**
+     * A hash of what an audit depends on, so a scan can skip images where nothing changed. The
+     * extra generic words are part of it: changing them changes how alt text is judged, so the
+     * next full scan checks every image again. (A changes-only scan only visits images updated
+     * since the last scan, so it can't; saving new words says to run a full scan.)
+     */
     public static function hash(Asset $asset, bool $decorative): string
     {
-        return sha1(implode("\0", [(string)$asset->alt, (string)$asset->getFilename(), (string)$asset->title, (string)$asset->volumeId, $decorative ? '1' : '0']));
+        $terms = implode("\n", AltMonitor::getInstance()->getSettings()->additionalGenericTerms);
+
+        return sha1(implode("\0", [(string)$asset->alt, (string)$asset->getFilename(), (string)$asset->title, (string)$asset->volumeId, $decorative ? '1' : '0', $terms]));
     }
 
     private function record(Asset $asset, int $siteId, bool $decorative, ?int $scanId): void
