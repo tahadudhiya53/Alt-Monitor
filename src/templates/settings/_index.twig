@@ -1,89 +1,151 @@
 {% extends '_layouts/cp' %}
 
+{#
+ # AltMonitor's settings, in Craft's tabs: each tab is a pane below, found by its id; the other
+ # starts hidden. A tab with an error in it is marked, and opens first, as in Craft's own settings.
+ #}
 {% set title = 'Settings'|t('alt-monitor') %}
+{% set bodyClass = 'altmonitor-page' %}
 {% set selectedSubnavItem = 'settings' %}
 {% set fullPageForm = not readOnly %}
 {% do view.registerAssetBundle('Tahadudhiya\\AltMonitor\\web\\assets\\cp\\CpAsset') %}
 {% do view.registerTranslations('alt-monitor', ['Testing…', 'The test could not be run.']) %}
 
+{% set tabs = {
+    'altmonitor-tab-checks': {
+        label: 'Scanning & rules'|t('alt-monitor'),
+        url: '#altmonitor-tab-checks',
+        class: settings.hasErrors('scanBatchSize') or settings.hasErrors('auditOnSave') or settings.hasErrors('scanUsageAfterFullScan') or settings.hasErrors('additionalGenericTerms') ? 'error' : null,
+    },
+    'altmonitor-tab-languages': {
+        label: 'Languages'|t('alt-monitor'),
+        url: '#altmonitor-tab-languages',
+        class: settings.hasErrors('siteLanguages') ? 'error' : null,
+    },
+} %}
+{% set selectedTab = tabs|filter(tab => (tab.class ?? null) == 'error')|keys|first ?: 'altmonitor-tab-checks' %}
+
 {% block content %}
     {% import '_includes/forms' as forms %}
-    {% set overrideNote = 'Set in config/alt-monitor.php, which overrides this.'|t('alt-monitor') %}
+    {% import 'alt-monitor/_macros' as macros %}
+    {% set openTab = selectedTab ?? 'altmonitor-tab-checks' %}
+    {% set overrideNote = 'Set in config/alt-monitor.php, so it can’t be changed here.'|t('alt-monitor') %}
 
-    <div class="altmonitor-settings readable">
     {% if readOnly %}
-        <p class="warning with-icon">{{ 'Admin changes are not allowed in this environment, so settings can only be viewed here.'|t('alt-monitor') }}</p>
+        <p class="warning with-icon">{{ 'Settings can’t be changed in this environment. You can only view them.'|t('alt-monitor') }}</p>
     {% else %}
         {{ actionInput('alt-monitor/settings/save') }}
         {{ redirectInput('alt-monitor/settings') }}
     {% endif %}
 
-    <h2>{{ 'Image descriptions'|t('alt-monitor') }}</h2>
-    <div id="altmonitor-ai-info">
+    {# ---------- Scanning & rules ---------- #}
+    <div id="altmonitor-tab-checks" class="altmonitor-settings{{ openTab != 'altmonitor-tab-checks' ? ' hidden' }}">
         {% if settings.aiEnabled %}
-            <p>{{ 'Suggestions are described from each image on the server, in the queue, by “{model}” through Ollama at {endpoint}. This is set in config/alt-monitor.php.'|t('alt-monitor', {model: settings.ollamaModel, endpoint: settings.endpoint()}) }}</p>
-            <div class="field">
+            <div id="altmonitor-ai-info" class="altmonitor-info">
+                <p>{{ 'Suggestions are written on the server by “{model}” (Ollama at {endpoint}), from each image. This is set in config/alt-monitor.php.'|t('alt-monitor', {model: settings.ollamaModel, endpoint: settings.endpoint()}) }}</p>
                 <button type="button" class="btn" data-altmonitor-test aria-controls="altmonitor-test-result">{{ 'Test connection'|t('alt-monitor') }}</button>
                 <p id="altmonitor-test-result" role="status" aria-live="polite"></p>
             </div>
-        {% else %}
-            <p>{{ 'A free image model runs in each user’s browser. No API key or account is needed.'|t('alt-monitor') }}
-                <a href="{{ url('alt-monitor/image-model') }}">{{ 'About the image model'|t('alt-monitor') }}</a></p>
         {% endif %}
+
+        <h2>{{ 'Scanning'|t('alt-monitor') }}</h2>
+        <p class="altmonitor-settings-text">{{ 'Scans read every image’s alt text and give it a status. They never change anything.'|t('alt-monitor') }}</p>
+
+        {{ forms.lightswitchField({
+            label: 'Check images when they are saved'|t('alt-monitor'),
+            instructions: 'Keeps each image’s status up to date between scans.'|t('alt-monitor'),
+            id: 'auditOnSave',
+            name: 'settings[auditOnSave]',
+            on: settings.auditOnSave,
+            disabled: readOnly or 'auditOnSave' in overrides,
+            warning: 'auditOnSave' in overrides ? overrideNote : null,
+            errors: settings.getErrors('auditOnSave'),
+        }) }}
+
+        {{ forms.lightswitchField({
+            label: 'Find where images are used after a full scan'|t('alt-monitor'),
+            instructions: 'Looks for each image in entries, Matrix, global sets and rich text.'|t('alt-monitor'),
+            id: 'scanUsageAfterFullScan',
+            name: 'settings[scanUsageAfterFullScan]',
+            on: settings.scanUsageAfterFullScan,
+            disabled: readOnly or 'scanUsageAfterFullScan' in overrides,
+            warning: 'scanUsageAfterFullScan' in overrides ? overrideNote : null,
+            errors: settings.getErrors('scanUsageAfterFullScan'),
+        }) }}
+
+        {{ forms.textField({
+            label: 'Images per scan job'|t('alt-monitor'),
+            instructions: 'How many images each queue job checks. Lower it if scans run out of time or memory.'|t('alt-monitor'),
+            id: 'scanBatchSize',
+            name: 'settings[scanBatchSize]',
+            type: 'number',
+            min: 10,
+            max: 1000,
+            size: 5,
+            value: settings.scanBatchSize,
+            disabled: readOnly or 'scanBatchSize' in overrides,
+            warning: 'scanBatchSize' in overrides ? overrideNote : null,
+            errors: settings.getErrors('scanBatchSize'),
+        }) }}
+
+        <hr>
+        <h2>{{ 'How images are checked'|t('alt-monitor') }}</h2>
+        <p class="altmonitor-settings-text">{{ 'Each image gets one status. These are the rules, checked in this order:'|t('alt-monitor') }}</p>
+
+        <div class="altmonitor-rules">
+            {% for rule in rules %}
+                <div class="altmonitor-rule">
+                    {{ macros.altStatus(rule.status) }}
+                    <ul>
+                        {% for reason in rule.reasons %}<li>{{ reason }}</li>{% endfor %}
+                    </ul>
+                </div>
+            {% endfor %}
+        </div>
+        <p class="altmonitor-settings-text light">{{ 'These are automatic checks. They point out likely problems, but can’t prove alt text is right.'|t('alt-monitor') }}</p>
+
+        {{ forms.textareaField({
+            label: 'Extra generic words'|t('alt-monitor'),
+            instructions: 'Add words your team uses that say nothing, like “slide” or “company logo”. Alt text that is only one of these words (also with “a”, “the” or a number, like “slide 2”) counts as weak. One per line. Run a full scan afterwards to re-check existing images.'|t('alt-monitor'),
+            id: 'additionalGenericTerms',
+            name: 'settings[additionalGenericTerms]',
+            value: settings.additionalGenericTerms|join("\n"),
+            placeholder: "slide\ncompany logo",
+            rows: 4,
+            disabled: readOnly or 'additionalGenericTerms' in overrides,
+            fieldAttributes: {class: ['altmonitor-wide']},
+            warning: 'additionalGenericTerms' in overrides ? overrideNote : null,
+            errors: settings.getErrors('additionalGenericTerms'),
+        }) }}
+
+        <details class="altmonitor-generic-words">
+            <summary>{{ 'Built-in generic words ({count, number})'|t('alt-monitor', {count: genericTerms|length}) }}</summary>
+            <p class="altmonitor-chips">{% for term in genericTerms %}<code>{{ term }}</code>{% endfor %}</p>
+        </details>
     </div>
 
-    <hr>
-    <h2>{{ 'Scanning'|t('alt-monitor') }}</h2>
+    {# ---------- Languages ---------- #}
+    <div id="altmonitor-tab-languages" class="altmonitor-settings{{ openTab != 'altmonitor-tab-languages' ? ' hidden' }}">
+        <p class="altmonitor-settings-text">{{ 'Pick the language suggestions are written in for each site. By default it’s the site’s own language. For example, choose English for a French site that uses English alt text.'|t('alt-monitor') }}</p>
+        {% if 'siteLanguages' in overrides %}<p class="warning with-icon">{{ overrideNote }}</p>{% endif %}
+        {% for error in settings.getErrors('siteLanguages') %}<p class="altmonitor-settings-text error">{{ error }}</p>{% endfor %}
 
-    {{ forms.textField({
-        label: 'Scan batch size'|t('alt-monitor'),
-        instructions: 'Images read per queue job. Lower it if scan jobs run out of time or memory.'|t('alt-monitor'),
-        id: 'scanBatchSize',
-        name: 'settings[scanBatchSize]',
-        type: 'number',
-        min: 10,
-        max: 1000,
-        size: 5,
-        value: settings.scanBatchSize,
-        disabled: readOnly,
-        warning: 'scanBatchSize' in overrides ? overrideNote : null,
-        errors: settings.getErrors('scanBatchSize'),
-    }) }}
+        {% for site in siteLanguages %}
+            {{ forms.selectField({
+                label: site.name,
+                instructions: 'Site language: {language}'|t('alt-monitor', {language: site.language}),
+                id: 'altmonitor-language-' ~ site.uid,
+                name: 'settings[siteLanguages][' ~ site.uid ~ ']',
+                options: site.options,
+                value: site.value,
+                tip: site.effect,
+                disabled: readOnly or 'siteLanguages' in overrides,
+            }) }}
+        {% endfor %}
 
-    {{ forms.lightswitchField({
-        label: 'Audit images when they are saved'|t('alt-monitor'),
-        instructions: 'Keeps an image’s audit current between scans.'|t('alt-monitor'),
-        id: 'auditOnSave',
-        name: 'settings[auditOnSave]',
-        on: settings.auditOnSave,
-        disabled: readOnly,
-        warning: 'auditOnSave' in overrides ? overrideNote : null,
-        errors: settings.getErrors('auditOnSave'),
-    }) }}
-
-    {{ forms.lightswitchField({
-        label: 'Scan content usage after a full scan'|t('alt-monitor'),
-        id: 'scanUsageAfterFullScan',
-        name: 'settings[scanUsageAfterFullScan]',
-        on: settings.scanUsageAfterFullScan,
-        disabled: readOnly,
-        warning: 'scanUsageAfterFullScan' in overrides ? overrideNote : null,
-        errors: settings.getErrors('scanUsageAfterFullScan'),
-    }) }}
-
-    <hr>
-    <h2>{{ 'Rules'|t('alt-monitor') }}</h2>
-
-    {{ forms.textareaField({
-        label: 'Additional generic terms'|t('alt-monitor'),
-        instructions: 'Words or phrases that, as the whole alt text, count as generic. One per line.'|t('alt-monitor'),
-        id: 'additionalGenericTerms',
-        name: 'settings[additionalGenericTerms]',
-        value: settings.additionalGenericTerms|join("\n"),
-        rows: 4,
-        disabled: readOnly,
-        warning: 'additionalGenericTerms' in overrides ? overrideNote : null,
-        errors: settings.getErrors('additionalGenericTerms'),
-    }) }}
+        <p class="altmonitor-settings-text light">
+            {{ 'Translating needs that language’s model in each browser (an optional download on the Image model page). Changing this doesn’t change existing suggestions.'|t('alt-monitor') }}
+            <a href="{{ url('alt-monitor/image-model') }}#altmonitor-translations-heading">{{ 'Translation models'|t('alt-monitor') }}</a>
+        </p>
     </div>
 {% endblock %}
