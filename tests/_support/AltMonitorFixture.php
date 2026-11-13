@@ -161,7 +161,7 @@ trait AltMonitorFixture
         Event::off(Queue::class, Queue::EVENT_AFTER_PUSH, [$this, 'catchJob']);
         $this->restoreConsoleRequest();
         Craft::$app->getUser()->setIdentity(null);
-        AltMonitor::getInstance()->getSettings()->setAttributes(['aiEnabled' => false, 'fallbackToRules' => false, 'auditOnSave' => true, 'scanUsageAfterFullScan' => true, 'suggestAfterScan' => false], false);
+        AltMonitor::getInstance()->getSettings()->setAttributes(['aiEnabled' => false, 'fallbackToRules' => false, 'auditOnSave' => true, 'scanUsageAfterFullScan' => true, 'suggestAfterScan' => false, 'siteLanguages' => [], 'additionalGenericTerms' => []], false);
 
         if ($this->savepoint?->getIsActive()) {
             $this->savepoint->rollBack();

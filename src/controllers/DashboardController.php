@@ -34,16 +34,16 @@ class DashboardController extends Controller
         $settings = $plugin->getSettings();
 
         return $this->renderTemplate('alt-monitor/_dashboard', [
-            'stats' => $plugin->getAudits()->stats($plugin->getAudits()->viewableVolumeIds($this->user())),
+            'stats' => $plugin->getAudits()->stats($plugin->getAudits()->viewableVolumeIds($this->user()), $this->user()),
             'activeScan' => $scans->active(),
             'lastScan' => $scans->latestCompleted([ScanType::FULL, ScanType::INCREMENTAL]),
             'lastUsageScan' => $scans->latestCompleted([ScanType::USAGE]),
+            // Images checked on save alone are not the whole library: step 1 needs a full scan.
+            'fullScanDone' => $scans->latestCompleted([ScanType::FULL]) !== null,
             'latestScan' => $scans->latest(),
             'serverAi' => $settings->aiEnabled,
             'aiModel' => $settings->aiEnabled ? $settings->ollamaModel : $plugin->getAiProviders()->browserConfig()['label'],
-            'describer' => Craft::$app->getUser()->checkPermission(AltMonitor::PERMISSION_GENERATE) && !$plugin->getSuggestions()->generatesOnServer()
-                ? $plugin->getAiProviders()->browserConfig()
-                : null,
+            'describer' => $plugin->getAiProviders()->describerConfig(),
             'canScan' => Craft::$app->getUser()->checkPermission(AltMonitor::PERMISSION_RUN_SCANS),
             'canGenerate' => Craft::$app->getUser()->checkPermission(AltMonitor::PERMISSION_GENERATE),
         ]);

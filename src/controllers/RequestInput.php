@@ -55,6 +55,22 @@ trait RequestInput
     }
 
     /**
+     * A positive whole number from the query string.
+     *
+     * @throws BadRequestHttpException
+     */
+    protected function queryInt(string $name): int
+    {
+        $value = $this->request->getQueryParam($name);
+
+        if (!is_string($value) || !preg_match('/^[1-9]\d{0,9}$/', $value)) {
+            throw new BadRequestHttpException("The “{$name}” parameter must be a positive whole number.");
+        }
+
+        return (int)$value;
+    }
+
+    /**
      * @throws BadRequestHttpException
      */
     protected function text(string $name): string

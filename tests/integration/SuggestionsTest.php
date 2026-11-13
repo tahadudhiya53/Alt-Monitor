@@ -14,6 +14,7 @@ use Tahadudhiya\AltMonitor\AltMonitor;
 use Tahadudhiya\AltMonitor\controllers\AssetsController;
 use Tahadudhiya\AltMonitor\controllers\SettingsController;
 use Tahadudhiya\AltMonitor\controllers\SuggestionsController;
+use Tahadudhiya\AltMonitor\enums\AltIssue;
 use Tahadudhiya\AltMonitor\enums\ScanType;
 use Tahadudhiya\AltMonitor\enums\SuggestionSource;
 use Tahadudhiya\AltMonitor\enums\SuggestionStatus;
@@ -157,7 +158,7 @@ class SuggestionsTest extends TestCase
 
         self::assertSame(SuggestionSource::RULES, $suggestion?->source);
         self::assertSame('Mountain lake', $suggestion->suggestedAlt);
-        self::assertStringContainsString('could not be reached', (string)$suggestion->error);
+        self::assertStringContainsString('Can’t reach Ollama', (string)$suggestion->error);
     }
 
     public function testWithoutTheFallbackAnAiFailureIsRecordedAsFailed(): void
@@ -204,6 +205,53 @@ class SuggestionsTest extends TestCase
         $this->runJobs();
         $second = $suggestions->get(...$pair);
         self::assertSame($first->id, $second->id, 'Regenerating replaces the suggestion rather than adding one.');
+    }
+
+    public function testARegenerateThatFailsKeepsTheLastSuggestion(): void
+    {
+        $image = self::savedImage('IMG_9300.jpg');
+        $pair = [(int)$image->id, self::$primarySiteId];
+        $suggestions = self::plugin()->getSuggestions();
+        $this->mockOllama([
+            self::json(['model' => 'qwen2.5vl:3b', 'response' => 'A red bicycle leaning on a brick wall.']),
+            new ConnectException('down', new Request('POST', 'http://localhost:11434/api/generate')),
+        ]);
+
+        $suggestions->queue([$pair]);
+        $this->runJobs();
+        self::assertSame('A red bicycle leaning on a brick wall.', $suggestions->get(...$pair)?->suggestedAlt);
+
+        // Ollama is down when it is made again: the suggestion waiting for review stays.
+        self::assertSame(1, $suggestions->queue([$pair]));
+        $this->runJobs();
+        $kept = $suggestions->get(...$pair);
+        self::assertSame(SuggestionStatus::PENDING, $kept->status);
+        self::assertSame('A red bicycle leaning on a brick wall.', $kept->suggestedAlt);
+        self::assertStringContainsString('the last one was kept', (string)$kept->error);
+    }
+
+    public function testARegenerateThatCrashesKeepsTheLastSuggestionToo(): void
+    {
+        $image = self::savedImage('IMG_9310.jpg');
+        $pair = [(int)$image->id, self::$primarySiteId];
+        $plugin = self::plugin();
+        $suggestions = $plugin->getSuggestions();
+        $this->mockOllama([
+            self::json(['model' => 'qwen2.5vl:3b', 'response' => 'A green door in a stone wall.']),
+            new ConnectException('down', new Request('POST', 'http://localhost:11434/api/generate')),
+        ]);
+        $suggestions->queue([$pair]);
+        $this->runJobs();
+
+        // Ollama is down, and the fallback then throws: the job's catch keeps it as well.
+        $plugin->getSettings()->fallbackToRules = true;
+        $plugin->set('suggestionGenerator', static fn() => throw new \RuntimeException('boom'));
+        $suggestions->queue([$pair]);
+        $this->runJobs();
+        $kept = $suggestions->get(...$pair);
+
+        self::assertSame(SuggestionStatus::PENDING, $kept?->status);
+        self::assertSame('A green door in a stone wall.', $kept->suggestedAlt);
     }
 
     public function testGeneratingForEveryImageWantingOneWalksTheAudit(): void
@@ -320,23 +368,52 @@ class SuggestionsTest extends TestCase
         self::assertNull(self::altOf($notSelected));
     }
 
-    public function testTheImageListSavesTypedAltTextAndApprovesPerSelectedRow(): void
+    public function testTheImageListSavesChangedRowsAndApprovesPerSelectedRow(): void
     {
         $typed = self::savedImage('IMG_7000.jpg');
         $approved = self::savedImage('snowy-owl.jpg');
         $untouched = self::savedImage('IMG_7001.jpg');
+        // Shown with no alt text; someone else saved some since. Leaving the row alone must not
+        // overwrite it.
+        $savedElsewhere = self::savedImage('harbour-lights.jpg', 'Written by someone else');
         self::plugin()->getSuggestions()->generate((int)$approved->id, self::$primarySiteId);
         $this->editor();
         $key = static fn(Asset $asset): string => $asset->id . '-' . self::$primarySiteId;
 
+        // “Save changes” saves the rows whose text differs from what they showed, selected or not.
         $save = $this->runAction(AssetsController::class, 'assets', 'bulk', [
-            'save' => $key($typed),
-            'alt' => [$key($typed) => '  A <b>wooden</b> jetty   at dawn ', $key($untouched) => 'Should not be saved'],
+            'intent' => 'save',
+            'selected' => [$key($untouched)],
+            'alt' => [$key($typed) => '  A <b>wooden</b> jetty   at dawn ', $key($untouched) => '', $key($savedElsewhere) => ''],
+            'original' => [$key($typed) => '', $key($untouched) => '', $key($savedElsewhere) => ''],
         ]);
         self::assertSame(200, $save?->getStatusCode());
+        self::assertStringContainsString('1 image', $save->data['message'] ?? '');
         // Saved as plain, single-spaced text.
         self::assertSame('A wooden jetty at dawn', self::altOf($typed));
         self::assertNull(self::altOf($untouched));
+        self::assertSame('Written by someone else', self::altOf($savedElsewhere));
+
+        $nothing = $this->runAction(AssetsController::class, 'assets', 'bulk', [
+            'intent' => 'save',
+            'alt' => [$key($untouched) => ''],
+            'original' => [$key($untouched) => ''],
+        ]);
+        self::assertSame(200, $nothing?->getStatusCode());
+        self::assertSame('Nothing changed, so nothing was saved.', $nothing->data['message'] ?? null);
+
+        // Each row fails on its own: too long text is reported, the other row still saved.
+        $partly = $this->runAction(AssetsController::class, 'assets', 'bulk', [
+            'intent' => 'save',
+            'alt' => [$key($typed) => str_repeat('a', 1001), $key($untouched) => 'A rowing boat on a lake'],
+            'original' => [$key($typed) => 'A wooden jetty at dawn', $key($untouched) => ''],
+        ]);
+        self::assertSame(200, $partly?->getStatusCode());
+        self::assertSame([$key($typed)], array_column($partly->data['failures'] ?? [], 'key'));
+        self::assertSame('A wooden jetty at dawn', self::altOf($typed));
+        self::assertSame('A rowing boat on a lake', self::altOf($untouched));
+        $untouched->alt = null;
+        Craft::$app->getElements()->saveElement($untouched);
 
         $approve = $this->runAction(AssetsController::class, 'assets', 'bulk', ['intent' => 'approve', 'selected' => [$key($approved), $key($untouched)]]);
         self::assertSame(200, $approve?->getStatusCode());
@@ -351,6 +428,96 @@ class SuggestionsTest extends TestCase
         $generate = $this->runAction(AssetsController::class, 'assets', 'bulk', ['intent' => 'generate', 'selected' => [$key($untouched)]]);
         self::assertSame(200, $generate?->getStatusCode());
         self::assertSame(SuggestionStatus::QUEUED, self::plugin()->getSuggestions()->get((int)$untouched->id, self::$primarySiteId)?->status);
+    }
+
+    public function testSelectedImagesCanBeMarkedDecorativeTogetherKeepingTheirAltText(): void
+    {
+        $divider = self::savedImage('divider-gold.png');
+        $icon = self::savedImage('icon-phone.png');
+        $described = self::savedImage('IMG_7004.jpg', 'A phone icon');
+        AltMonitor::getInstance()->getScans()->start(ScanType::FULL);
+        $this->runJobs();
+        $user = $this->editor();
+        $key = static fn(Asset $asset): string => $asset->id . '-' . self::$primarySiteId;
+        $item = static fn(Asset $asset) => self::plugin()->getAudits()->item((int)$asset->id, self::$primarySiteId, $user);
+        self::assertSame('missing', $item($icon)?->status->value);
+
+        $response = $this->runAction(AssetsController::class, 'assets', 'bulk', [
+            'intent' => 'decorative',
+            'selected' => [$key($divider), $key($icon), $key($described), '999999999-' . self::$primarySiteId],
+        ]);
+
+        // Done for the three images; the one that doesn't exist is reported on its own.
+        self::assertSame(200, $response?->getStatusCode());
+        self::assertSame(['999999999-' . self::$primarySiteId], array_column($response->data['failures'] ?? [], 'key'));
+        self::assertStringContainsString('Marked 3 images as decorative.', (string)$response->data['message']);
+        self::assertStringContainsString('1 of them still has alt text', (string)$response->data['message']);
+
+        foreach ([$divider, $icon, $described] as $asset) {
+            self::assertTrue($item($asset)?->decorative);
+        }
+
+        // Empty alt text is now intended; written alt text is kept and still graded by itself.
+        self::assertSame('good', $item($icon)?->status->value);
+        self::assertSame('good', $item($divider)?->status->value);
+        self::assertSame('A phone icon', self::altOf($described));
+
+        // Like saving, it needs the edit permission.
+        $this->signIn(false, ['accessCp', 'accessPlugin-alt-monitor', AltMonitor::PERMISSION_VIEW, ...self::assetPermissions()]);
+        $this->expectException(\yii\web\ForbiddenHttpException::class);
+        $this->runAction(AssetsController::class, 'assets', 'bulk', ['intent' => 'decorative', 'selected' => [$key($icon)]]);
+    }
+
+    public function testARowSavedInPlaceGetsItsNewStatusIssuesAndWhetherASuggestionStillWaits(): void
+    {
+        $named = self::savedImage('IMG_7002.jpg');
+        $owl = self::savedImage('snowy-owl.jpg');
+        self::plugin()->getSuggestions()->generate((int)$owl->id, self::$primarySiteId);
+        $this->editor();
+        $save = fn(Asset $asset, string $alt) => $this->runAction(AssetsController::class, 'assets', 'save', ['assetId' => (string)$asset->id, 'siteId' => (string)self::$primarySiteId, 'alt' => $alt]);
+
+        // The file name as alt text: saved, and the row learns it is weak and why.
+        $weak = $save($named, ' IMG_7002.jpg ');
+        self::assertSame(200, $weak?->getStatusCode());
+        self::assertSame('IMG_7002.jpg', $weak->data['alt'] ?? null);
+        self::assertSame('weak', $weak->data['status']['value'] ?? null);
+        self::assertContains('The alt text is the file name.', array_map('strval', $weak->data['issues'] ?? []));
+        self::assertFalse($weak->data['hasSuggestion'] ?? null);
+
+        // Other text than the suggestion: the suggestion still waits.
+        $other = $save($owl, 'A white owl on a fence post in the snow');
+        self::assertSame('good', $other?->data['status']['value'] ?? null);
+        self::assertSame([], $other->data['issues'] ?? null);
+        self::assertTrue($other->data['hasSuggestion'] ?? null);
+
+        // The suggestion's own text: it counts as used, so the row drops it.
+        $used = $save($owl, 'Snowy owl');
+        self::assertSame(200, $used?->getStatusCode());
+        self::assertFalse($used->data['hasSuggestion'] ?? null);
+        self::assertSame(SuggestionStatus::APPROVED, self::plugin()->getSuggestions()->get((int)$owl->id, self::$primarySiteId)?->status);
+    }
+
+    public function testTypedAltTextIsGradedByTheScanRulesWithoutBeingSaved(): void
+    {
+        $image = self::savedImage('IMG_7003.jpg', 'A heron on a post');
+        $this->editor();
+        $check = fn(string $alt) => $this->runAction(AssetsController::class, 'assets', 'check', ['assetId' => (string)$image->id, 'siteId' => (string)self::$primarySiteId, 'alt' => $alt]);
+        $grade = static fn($response): array => [$response?->data['status']['value'] ?? null, $response?->data['issues'] ?? null];
+
+        self::assertSame(['weak', [AltIssue::FILENAME->label(), AltIssue::FILE_EXTENSION->label()]], $grade($check('IMG_7003.jpg')));
+        self::assertSame(['review', [AltIssue::REDUNDANT_PREFIX->label()]], $grade($check('Image of a heron')));
+        self::assertSame(['review', [AltIssue::TOO_LONG->label()]], $grade($check(implode(' ', array_map(static fn(int $i): string => "heron$i", range(1, 40))) . ' standing still')));
+        self::assertSame(['missing', [AltIssue::EMPTY->label()]], $grade($check('  ')));
+        self::assertSame(['good', []], $grade($check('A grey heron on a <b>wooden</b> post')));
+
+        // Too long to save at all: said, not graded.
+        $tooLong = $check(str_repeat('x', 1001));
+        self::assertNull($tooLong?->data['status']);
+        self::assertCount(1, $tooLong->data['issues']);
+
+        // Nothing changed: the asset and its audit are as they were.
+        self::assertSame('A heron on a post', self::altOf($image));
+        self::assertSame('good', self::plugin()->getAudits()->item((int)$image->id, self::$primarySiteId, null)?->status->value);
     }
 
     public function testAltTextIsSavedPerSiteWhereItIsTranslatable(): void
@@ -380,11 +547,11 @@ class SuggestionsTest extends TestCase
             }
         }
 
-        self::assertSame(['There is no such image.', 'There is no such image.', 'Only images have alt text managed here.'], $refusals);
+        self::assertSame(['There is no such image.', 'There is no such image.', 'Only images are managed here.'], $refusals);
 
         $viewer = $this->signIn(false, ['accessCp', 'viewAssets:' . self::$shared->uid]);
         $this->expectException(AltTextException::class);
-        $this->expectExceptionMessage('You may not edit this image.');
+        $this->expectExceptionMessage('You can’t edit this image.');
         $editor->save((int)$image->id, self::$primarySiteId, 'Anything', $viewer);
     }
 
@@ -437,6 +604,10 @@ class SuggestionsTest extends TestCase
         self::assertStringContainsString('IMG_8100.jpg', $filtered);
         self::assertStringNotContainsString('xss.jpg', $filtered);
         self::assertStringContainsString('1 place', $filtered);
+        // One way to save: “Save changes”, with what each field started with for the server.
+        self::assertSame(1, substr_count($filtered, 'name="intent" value="save"'));
+        self::assertStringNotContainsString('name="save"', $filtered);
+        self::assertStringContainsString('name="original[' . $missing->id . '-' . self::$primarySiteId . ']"', $filtered);
 
         $none = self::html($this->runAction(AssetsController::class, 'assets', 'index', ['search' => 'no-such-file'], method: 'GET', json: false));
         self::assertStringContainsString('No images match these filters.', $none);
@@ -448,10 +619,33 @@ class SuggestionsTest extends TestCase
         $suggestions = self::html($this->runAction(SuggestionsController::class, 'suggestions', 'index', [], method: 'GET', json: false));
         self::assertStringContainsString('IMG_8100.jpg', $suggestions);
         self::assertStringContainsString('A page using it', $suggestions);
-        self::assertStringContainsString('Rule-based', $suggestions);
+        self::assertStringContainsString('From image details', $suggestions);
 
         $bySource = self::html($this->runAction(SuggestionsController::class, 'suggestions', 'index', ['source' => 'ai'], method: 'GET', json: false));
         self::assertStringContainsString('No suggestions match these filters.', $bySource);
+    }
+
+    public function testTheSuggestionsPageOffersFastReviewOnlyToApprovers(): void
+    {
+        $image = self::savedImage('snowy-owl.jpg');
+        self::plugin()->getSuggestions()->generate((int)$image->id, self::$primarySiteId);
+        $this->editor();
+        $page = fn() => self::html($this->runAction(SuggestionsController::class, 'suggestions', 'index', [], method: 'GET', json: false));
+
+        $html = $page();
+        // The list is wrapped so it can be loaded again in place; the shortcuts are said once.
+        self::assertStringContainsString('data-altmonitor-review', $html);
+        self::assertStringContainsString('<kbd>Esc</kbd> rejects it.', $html);
+        self::assertStringContainsString('aria-keyshortcuts="Control+Enter Meta+Enter"', $html);
+        self::assertStringContainsString('aria-describedby="altmonitor-shortcuts"', $html);
+        self::assertStringContainsString('data-approve-all', $html);
+
+        $this->signIn(false, ['accessCp', 'accessPlugin-alt-monitor', AltMonitor::PERMISSION_VIEW, ...self::assetPermissions()]);
+        $html = $page();
+        self::assertStringContainsString('<p>Snowy owl</p>', $html);
+        self::assertStringNotContainsString('data-approve-all', $html);
+        self::assertStringNotContainsString('altmonitor-shortcuts', $html);
+        self::assertStringNotContainsString('aria-keyshortcuts', $html);
     }
 
     public function testMalformedFiltersAreRefused(): void
@@ -519,6 +713,18 @@ class SuggestionsTest extends TestCase
         self::assertMatchesRegularExpression('/^[\x20-\x7E]*$/', (string)$headers->get('X-AltMonitor-Known'));
     }
 
+    public function testLongAltTextIsLeftOutOfTheHeaderSoItStaysSmall(): void
+    {
+        // 600 Chinese characters would be over 5 KB URL-encoded: more than nginx's default buffer.
+        $image = self::savedImage('long-alt.png', str_repeat('港口的夜景', 120));
+        $user = $this->editor();
+        self::plugin()->getSuggestions()->storeDescription((int)$image->id, self::$primarySiteId, 'A harbour at night', $user);
+        $header = (string)$this->runAction(SuggestionsController::class, 'suggestions', 'image', ['assetId' => (string)$image->id, 'siteId' => (string)self::$primarySiteId], method: 'GET', json: false)?->getHeaders()->get('X-AltMonitor-Known');
+
+        self::assertSame(['A harbour at night'], json_decode(rawurldecode($header), true));
+        self::assertLessThanOrEqual(3000, strlen($header));
+    }
+
     public function testTheImageIsOnlyServedToUsersWhoMayViewIt(): void
     {
         $image = self::savedImage('guarded.png');
@@ -552,12 +758,19 @@ class SuggestionsTest extends TestCase
 
         $ids = [];
         $after = '0';
+        $totals = [];
 
         do {
-            $images = $this->runAction(SuggestionsController::class, 'suggestions', 'next', ['after' => $after], method: 'GET')?->data['images'] ?? [];
+            $data = $this->runAction(SuggestionsController::class, 'suggestions', 'next', ['after' => $after], method: 'GET')->data ?? [];
+            $images = $data['images'] ?? [];
+            $totals[] = $data['total'] ?? null;
             array_push($ids, ...array_column($images, 'assetId'));
             $after = $images ? (string)end($images)['auditId'] : $after;
         } while ($images);
+
+        // The first answer says how many there are in all (for progress and the time left).
+        self::assertSame(count($ids), $totals[0]);
+        self::assertSame([null], array_unique(array_slice($totals, 1)));
 
         self::assertContains((int)$missing->id, $ids);
         self::assertContains((int)$weak->id, $ids);
@@ -589,6 +802,217 @@ class SuggestionsTest extends TestCase
         }
 
         self::assertSame('Two cats laying on a pink blanket.', self::plugin()->getSuggestions()->get((int)$image->id, self::$primarySiteId)?->suggestedAlt);
+    }
+
+    public function testForASiteInAnotherLanguageTheBrowserTranslatesAndEnglishSuggestionsAreMarked(): void
+    {
+        $site = Craft::$app->getSites()->getPrimarySite();
+        $language = $site->language;
+        $site->language = 'de-CH';
+
+        try {
+            $image = self::savedImage('IMG_9220.jpg');
+            $this->editor();
+            $store = fn(string $text, int $translated) => $this->runAction(SuggestionsController::class, 'suggestions', 'store', ['assetId' => $image->id, 'siteId' => self::$primarySiteId, 'text' => $text, 'translated' => $translated]);
+            $suggestion = fn() => self::plugin()->getSuggestions()->get((int)$image->id, self::$primarySiteId);
+            $view = fn() => self::html($this->runAction(AssetsController::class, 'assets', 'view', ['assetId' => $image->id, 'siteId' => self::$primarySiteId], method: 'GET', json: false));
+
+            // The browser is told which model translates into the site's language…
+            self::assertSame(['model' => 'Xenova/opus-mt-en-de', 'language' => 'de', 'megabytes' => 112], self::plugin()->getAiProviders()->browserConfig()['translations'][self::$primarySiteId] ?? null);
+            // …which the image model page offers as a download of its own, apart from the image
+            // model's, with its own agreement.
+            $model = self::html($this->runAction(\Tahadudhiya\AltMonitor\controllers\ModelController::class, 'model', 'index', ['translation' => 'de'], method: 'GET', json: false));
+            self::assertStringContainsString('Download (304 MB)', $model);
+            self::assertMatchesRegularExpression('/<tr data-translation="Xenova\/opus-mt-en-de" data-language="de" data-wanted/', $model);
+            self::assertStringContainsString('data-translation-agree', $model);
+
+            // Translated while describing: recorded as such, nothing to mark.
+            $store('Zwei Katzen auf einer rosa Decke', 1);
+            self::assertSame('Florence-2-base-ft + opus-mt-en-de (in the browser)', $suggestion()?->basis);
+            self::assertFalse($suggestion()->needsTranslation());
+            self::assertStringNotContainsString('data-translation-note', $view());
+
+            // Described in English (this browser hasn't the translation model): marked, with
+            // Translate, wherever it is shown.
+            $store('Two cats on a pink blanket', 0);
+            $english = $suggestion();
+            self::assertSame('Florence-2-base-ft (in the browser)', $english?->basis);
+            self::assertTrue($english->needsTranslation());
+            self::assertStringContainsString('This suggestion is in English. Translate it before using it.', $view());
+            self::assertStringContainsString('data-translate-suggestion="' . $english->id . '"', $view());
+            // In the control panel's language.
+            self::assertStringContainsString('Translate into ' . \Tahadudhiya\AltMonitor\ai\Translations::languageName('de'), $view());
+            self::assertStringContainsString('data-translate-suggestion', self::plugin()->getAssetsUi()->sidebarHtml($image, false));
+            $review = self::html($this->runAction(SuggestionsController::class, 'suggestions', 'index', [], method: 'GET', json: false));
+            self::assertStringContainsString('data-translate-suggestion="' . $english->id . '"', $review);
+            self::assertStringContainsString('data-altmonitor-describer', $review);
+
+            // Translate replaces the text alone: the same suggestion, still waiting for review.
+            $translate = fn(string $text) => $this->runAction(SuggestionsController::class, 'suggestions', 'translate', ['id' => (string)$english->id, 'text' => $text]);
+            self::assertSame(400, $translate('image')?->getStatusCode());
+            self::assertSame(200, $translate('Zwei Katzen auf einer <b>rosa</b> Decke')?->getStatusCode());
+            $translated = $suggestion();
+            self::assertSame($english->id, $translated?->id);
+            self::assertSame('Zwei Katzen auf einer rosa Decke', $translated->suggestedAlt);
+            self::assertSame('Florence-2-base-ft + opus-mt-en-de (in the browser)', $translated->basis);
+            self::assertSame(SuggestionStatus::PENDING, $translated->status);
+            self::assertFalse($translated->needsTranslation());
+            self::assertStringNotContainsString('data-translate-suggestion', $view());
+            // Once translated, there is nothing more to translate.
+            self::assertSame(400, $translate('Noch einmal')?->getStatusCode());
+
+            // A language without a translation model: nothing to translate with, a claimed
+            // translation isn't recorded, and there is no Translate.
+            $site->language = 'pt-BR';
+            self::assertArrayNotHasKey(self::$primarySiteId, self::plugin()->getAiProviders()->browserConfig()['translations']);
+            $store('Two cats asleep on a pink blanket', 1);
+            self::assertSame('Florence-2-base-ft (in the browser)', $suggestion()?->basis);
+            self::assertTrue($suggestion()->needsTranslation());
+            self::assertStringNotContainsString('data-translate-suggestion', $view());
+            self::assertSame(400, $this->runAction(SuggestionsController::class, 'suggestions', 'translate', ['id' => (string)$suggestion()->id, 'text' => 'Dois gatos'])?->getStatusCode());
+
+            // In English, nothing is marked.
+            $site->language = 'en-GB';
+            self::assertFalse($suggestion()->needsTranslation());
+        } finally {
+            $site->language = $language;
+        }
+    }
+
+    public function testWithOllamaEnglishSuggestionsCanStillBeTranslatedInTheBrowser(): void
+    {
+        $site = Craft::$app->getSites()->getPrimarySite();
+        $language = $site->language;
+        $site->language = 'fr-FR';
+
+        try {
+            $image = self::savedImage('IMG_9230.jpg');
+            $this->editor();
+            $this->runAction(SuggestionsController::class, 'suggestions', 'store', ['assetId' => $image->id, 'siteId' => self::$primarySiteId, 'text' => 'Two cats on a pink blanket']);
+            \craft\helpers\Db::update(\Tahadudhiya\AltMonitor\records\SuggestionRecord::TABLE, ['basis' => 'qwen2.5vl:3b'], ['assetId' => $image->id, 'siteId' => self::$primarySiteId]);
+            // Ollama describes images on the server, in English.
+            $this->mockOllama([]);
+            $suggestion = self::plugin()->getSuggestions()->get((int)$image->id, self::$primarySiteId);
+            self::assertTrue($suggestion?->needsTranslation());
+
+            // No describing in the browser, but Translate, with the popup it reports into.
+            $view = self::html($this->runAction(AssetsController::class, 'assets', 'view', ['assetId' => $image->id, 'siteId' => self::$primarySiteId], method: 'GET', json: false));
+            self::assertStringNotContainsString('data-describe-one', $view);
+            self::assertStringContainsString('altmonitor-regenerate-form', $view);
+            self::assertStringContainsString('data-translate-suggestion="' . $suggestion->id . '"', $view);
+            self::assertStringContainsString('data-altmonitor-describer', $view);
+            self::assertStringContainsString('data-translate-suggestion', self::plugin()->getAssetsUi()->sidebarHtml($image, false));
+            self::assertStringContainsString('data-translate-suggestion', self::html($this->runAction(SuggestionsController::class, 'suggestions', 'index', [], method: 'GET', json: false)));
+
+            // The image model page offers only the translation models.
+            $model = self::html($this->runAction(\Tahadudhiya\AltMonitor\controllers\ModelController::class, 'model', 'index', [], method: 'GET', json: false));
+            self::assertStringNotContainsString('data-consent', $model);
+            self::assertStringContainsString('data-translation="Xenova/opus-mt-en-fr"', $model);
+
+            self::assertSame(200, $this->runAction(SuggestionsController::class, 'suggestions', 'translate', ['id' => (string)$suggestion->id, 'text' => 'Deux chats sur une couverture rose'])?->getStatusCode());
+            $translated = self::plugin()->getSuggestions()->get((int)$image->id, self::$primarySiteId);
+            self::assertSame('Deux chats sur une couverture rose', $translated?->suggestedAlt);
+            self::assertSame('qwen2.5vl:3b + opus-mt-en-fr (in the browser)', $translated->basis);
+            self::assertFalse($translated->needsTranslation());
+        } finally {
+            $site->language = $language;
+        }
+    }
+
+    public function testOnlySuggestionsWaitingForReviewAreMarkedForTranslating(): void
+    {
+        $site = Craft::$app->getSites()->getPrimarySite();
+        $language = $site->language;
+        $site->language = 'fr-FR';
+        $make = fn(SuggestionStatus $status) => new \Tahadudhiya\AltMonitor\models\Suggestion(1, 1, self::$primarySiteId, 'Two cats', SuggestionSource::AI, $status, true, 'Florence-2-base-ft (in the browser)', null, null);
+
+        try {
+            self::assertTrue($make(SuggestionStatus::PENDING)->needsTranslation());
+            self::assertSame('fr', $make(SuggestionStatus::PENDING)->translation()['language'] ?? null);
+
+            // Already saved to the image, or turned down: nothing to translate any more.
+            foreach ([SuggestionStatus::APPROVED, SuggestionStatus::REJECTED, SuggestionStatus::FAILED] as $status) {
+                self::assertFalse($make($status)->needsTranslation(), $status->value);
+                self::assertNull($make($status)->translation(), $status->value);
+            }
+        } finally {
+            $site->language = $language;
+        }
+    }
+
+    public function testAltTextWithALineBreakIsNotSeenAsChangedOnTheImagesList(): void
+    {
+        // Craft's Alt Text field is a textarea; a text box on the list shows line breaks as spaces.
+        $image = self::savedImage('IMG_9260.jpg', "Line one\nLine two");
+        self::plugin()->getScans()->start(ScanType::FULL);
+        $this->runJobs();
+        $this->editor();
+        $key = $image->id . '-' . self::$primarySiteId;
+
+        $list = self::html($this->runAction(AssetsController::class, 'assets', 'index', [], method: 'GET', json: false));
+        self::assertMatchesRegularExpression('/name="alt\[' . $key . '\]" value="Line one Line two"/', $list);
+        self::assertMatchesRegularExpression('/name="original\[' . $key . '\]" value="Line one Line two"/', $list);
+
+        // Saving the list as it was (without JavaScript) leaves the image's alt text untouched.
+        $saved = $this->runAction(AssetsController::class, 'assets', 'bulk', ['intent' => 'save', 'alt' => [$key => 'Line one Line two'], 'original' => [$key => 'Line one Line two']]);
+        self::assertSame('Nothing changed, so nothing was saved.', $saved?->data['message'] ?? null);
+        self::assertSame("Line one\nLine two", self::altOf($image));
+    }
+
+    public function testEachSitesSuggestionLanguageCanBeChosenInTheSettings(): void
+    {
+        $site = Craft::$app->getSites()->getPrimarySite();
+        $language = $site->language;
+        $site->language = 'fr-FR';
+        $general = Craft::$app->getConfig()->getGeneral();
+        $allowAdminChanges = $general->allowAdminChanges;
+        $general->allowAdminChanges = true;
+        $settings = self::plugin()->getSettings();
+        $save = fn(array $languages) => $this->runAction(SettingsController::class, 'settings', 'save', ['settings' => ['siteLanguages' => $languages]]);
+
+        try {
+            $image = self::savedImage('IMG_9240.jpg');
+            $this->signIn(true);
+
+            // Each site has a choice, the site's own language by default.
+            $page = self::html($this->runAction(SettingsController::class, 'settings', 'index', [], method: 'GET', json: false));
+            self::assertStringContainsString('name="settings[siteLanguages][' . $site->uid . ']"', $page);
+            // Two of Craft's tabs: Scanning & rules open, Languages hidden until chosen.
+            self::assertStringContainsString('<div id="altmonitor-tab-checks" class="altmonitor-settings">', $page);
+            self::assertStringContainsString('<div id="altmonitor-tab-languages" class="altmonitor-settings hidden">', $page);
+            // The rules are explained, one card per status, with the built-in generic words.
+            self::assertSame(4, substr_count($page, 'class="altmonitor-rule"'));
+            self::assertStringContainsString('<code>placeholder</code>', $page);
+            self::assertStringContainsString('longer than 250', $page);
+            self::assertStringContainsString('Same as the site (' . \Tahadudhiya\AltMonitor\ai\Translations::languageName('fr') . ')', $page);
+
+            // English for the French site: nothing to translate, nothing marked. Unknown sites
+            // aren't kept.
+            $save([$site->uid => 'en', 'no-such-site' => 'de']);
+            self::assertSame([$site->uid => 'en'], $settings->siteLanguages);
+            self::assertArrayNotHasKey(self::$primarySiteId, self::plugin()->getAiProviders()->browserConfig()['translations']);
+            $this->runAction(SuggestionsController::class, 'suggestions', 'store', ['assetId' => $image->id, 'siteId' => self::$primarySiteId, 'text' => 'Two cats on a pink blanket']);
+            self::assertFalse(self::plugin()->getSuggestions()->get((int)$image->id, self::$primarySiteId)?->needsTranslation());
+
+            // Choosing the site's own language is the default, so nothing is stored.
+            $save([$site->uid => 'fr']);
+            self::assertSame([], $settings->siteLanguages);
+            self::assertSame('Xenova/opus-mt-en-fr', self::plugin()->getAiProviders()->browserConfig()['translations'][self::$primarySiteId]['model'] ?? null);
+
+            // German instead: the English suggestion now wants translating into German.
+            $save([$site->uid => 'de']);
+            self::assertSame('Xenova/opus-mt-en-de', self::plugin()->getAiProviders()->browserConfig()['translations'][self::$primarySiteId]['model'] ?? null);
+            $suggestion = self::plugin()->getSuggestions()->get((int)$image->id, self::$primarySiteId);
+            self::assertTrue($suggestion?->needsTranslation());
+            self::assertSame('de', $suggestion->translation()['language'] ?? null);
+
+            // Only listed languages.
+            self::assertSame(400, $save([$site->uid => 'xx'])?->getStatusCode());
+        } finally {
+            $site->language = $language;
+            $general->allowAdminChanges = $allowAdminChanges;
+            $settings->siteLanguages = [];
+        }
     }
 
     public function testADescriptionThatRepeatsTheAltTextIsNotSuggestedAndApprovingReportsTheNewStatus(): void
@@ -651,6 +1075,183 @@ class SuggestionsTest extends TestCase
         // The published worker and library are the plugin's own files.
         $worker = (string)file_get_contents(Craft::getAlias('@webroot') . parse_url((string)$config['worker'], PHP_URL_PATH));
         self::assertStringContainsString('Florence2ForConditionalGeneration', $worker);
+    }
+
+    // Craft's own asset screens
+
+    public function testTheAssetEditorSidebarShowsTheStatusAndTheSuggestionToUse(): void
+    {
+        $image = self::savedImage('IMG_9400.jpg');
+        $user = $this->editor();
+        $ui = self::plugin()->getAssetsUi();
+
+        // Not described yet: the status, why it matters, and describing it.
+        $html = $ui->sidebarHtml($image, false);
+        self::assertStringContainsString('data-altmonitor-sidebar', $html);
+        self::assertStringContainsString('data-alt-status="missing"', $html);
+        self::assertStringContainsString('Screen readers can’t tell people what this image shows.', $html);
+        self::assertStringContainsString('data-sidebar-describe', $html);
+        self::assertStringNotContainsString('data-sidebar-use', $html);
+        // Its describer is the box's own, not one AltMonitor's pages would pick up.
+        self::assertStringContainsString('data-altmonitor-sidebar-describer', $html);
+        self::assertStringNotContainsString('data-altmonitor-describer', $html);
+        self::assertStringNotContainsString('data-review', $html);
+        self::assertStringContainsString('alt-monitor/images/' . $image->id . '/' . self::$primarySiteId, $html);
+
+        self::plugin()->getSuggestions()->storeDescription((int)$image->id, self::$primarySiteId, 'A heron & a "fish" in a pond', $user);
+        $html = $ui->sidebarHtml($image, false);
+
+        self::assertStringContainsString('data-sidebar-use=', $html);
+        self::assertStringContainsString('data-sidebar-dismiss=', $html);
+        self::assertStringContainsString('data-can-approve="1"', $html);
+        self::assertStringContainsString('A heron &amp; a &quot;fish&quot; in a pond', $html);
+        self::assertStringNotContainsString('a "fish"', $html);
+        self::assertStringContainsString('Describe again', $html);
+
+        // Inside the editor's form, no button may submit it.
+        preg_match_all('/<button\b[^>]*>/', $html, $buttons);
+        self::assertNotEmpty($buttons[0]);
+
+        foreach ($buttons[0] as $button) {
+            self::assertStringContainsString('type="button"', $button);
+        }
+
+        // Read-only editor: the status and suggestion, nothing to use.
+        self::assertStringNotContainsString('data-sidebar-use=', $ui->sidebarHtml($image, true));
+
+        // Only images get a box.
+        self::assertSame('', $ui->sidebarHtml(self::savedFile('notes.txt'), false));
+    }
+
+    public function testTheSidebarSaysWhenAnImageIsDecorativeOrNotCheckedYet(): void
+    {
+        $image = self::savedImage('divider.png');
+        $this->editor();
+        $ui = self::plugin()->getAssetsUi();
+
+        self::plugin()->getAudits()->setDecorative((int)$image->id, self::$primarySiteId, true);
+        self::plugin()->getAssetScanner()->auditAsset($image);
+        self::assertStringContainsString('Screen readers skip it, so no alt text is needed.', $ui->sidebarHtml($image, false));
+
+        self::plugin()->getAudits()->forget((int)$image->id);
+        $html = $ui->sidebarHtml($image, false);
+        self::assertStringContainsString('Not checked yet.', $html);
+        self::assertStringNotContainsString('data-sidebar-describe', $html);
+    }
+
+    public function testTheSidebarRendersAgainThroughItsEndpoint(): void
+    {
+        $image = self::savedImage('IMG_9410.jpg');
+        $this->editor();
+
+        $response = $this->runAction(AssetsController::class, 'assets', 'sidebar', ['assetId' => (string)$image->id, 'siteId' => (string)self::$primarySiteId], method: 'GET');
+
+        self::assertStringContainsString('data-asset-id="' . $image->id . '"', (string)($response?->data['html'] ?? ''));
+        self::assertStringNotContainsString('data-static', (string)($response?->data['html'] ?? ''));
+
+        // Fetched again from a read-only editor, it stays read-only: no Use.
+        self::plugin()->getSuggestions()->storeDescription((int)$image->id, self::$primarySiteId, 'A heron by a pond', Craft::$app->getUser()->getIdentity());
+        $static = $this->runAction(AssetsController::class, 'assets', 'sidebar', ['assetId' => (string)$image->id, 'siteId' => (string)self::$primarySiteId, 'static' => '1'], method: 'GET');
+        self::assertStringContainsString('data-static', (string)($static?->data['html'] ?? ''));
+        self::assertStringNotContainsString('data-sidebar-use=', (string)($static?->data['html'] ?? ''));
+        $editable = $this->runAction(AssetsController::class, 'assets', 'sidebar', ['assetId' => (string)$image->id, 'siteId' => (string)self::$primarySiteId], method: 'GET');
+        self::assertStringContainsString('data-sidebar-use=', (string)($editable?->data['html'] ?? ''));
+    }
+
+    public function testSavingAnAssetWithTheSuggestedTextMarksTheSuggestionUsed(): void
+    {
+        $user = $this->editor();
+        $suggestions = self::plugin()->getSuggestions();
+        $used = self::savedImage('IMG_9420.jpg');
+        $other = self::savedImage('IMG_9421.jpg');
+        $suggestions->storeDescription((int)$used->id, self::$primarySiteId, 'A heron fishing in a pond', $user);
+        $suggestions->storeDescription((int)$other->id, self::$primarySiteId, 'A fox in the snow', $user);
+
+        // As after “Use” in the asset editor, then saving the asset the usual way.
+        $fresh = static fn(Asset $asset): Asset => Asset::find()->id($asset->id)->siteId(self::$primarySiteId)->status(null)->one();
+        $edited = $fresh($used);
+        $edited->alt = 'A heron fishing in a pond';
+        self::assertTrue(Craft::$app->getElements()->saveElement($edited), implode(' ', $edited->getFirstErrors()));
+        $edited = $fresh($other);
+        $edited->alt = 'A red fox';
+        self::assertTrue(Craft::$app->getElements()->saveElement($edited), implode(' ', $edited->getFirstErrors()));
+
+        self::assertSame(SuggestionStatus::APPROVED, $suggestions->get((int)$used->id, self::$primarySiteId)?->status);
+        self::assertSame(SuggestionStatus::PENDING, $suggestions->get((int)$other->id, self::$primarySiteId)?->status);
+    }
+
+    public function testTheAssetsIndexShowsAndFiltersByAltStatus(): void
+    {
+        $missing = self::savedImage('IMG_9430.jpg');
+        $good = self::savedImage('IMG_9431.jpg', 'A heron fishing in a pond');
+        $unchecked = self::savedImage('IMG_9432.jpg');
+        $file = self::savedFile('notes.txt');
+        self::plugin()->getAudits()->forget((int)$unchecked->id);
+        $this->editor();
+
+        self::assertArrayHasKey('altMonitorStatus', Craft::$app->getElementSources()->getAvailableTableAttributes(Asset::class));
+
+        // One page of the index: statuses read together, one query for all of them.
+        $ids = [(int)$missing->id, (int)$good->id, (int)$unchecked->id, (int)$file->id];
+        $page = Asset::find()->id($ids)->siteId(self::$primarySiteId)->status(null)->indexBy('id')->all();
+        $ui = self::plugin()->getAssetsUi();
+        $ui->reset();
+
+        self::assertStringContainsString('Missing', $page[$missing->id]->getAttributeHtml('altMonitorStatus'));
+        self::assertStringContainsString('Good', $page[$good->id]->getAttributeHtml('altMonitorStatus'));
+        self::assertStringContainsString('Not checked', $page[$unchecked->id]->getAttributeHtml('altMonitorStatus'));
+        self::assertSame('', $page[$file->id]->getAttributeHtml('altMonitorStatus'));
+
+        $filter = function(array $values, string $operator = 'in') use ($ids): array {
+            $rule = new \Tahadudhiya\AltMonitor\conditions\AltStatusConditionRule();
+            $rule->operator = $operator;
+            $rule->setValues($values);
+            $query = Asset::find()->id($ids)->siteId(self::$primarySiteId)->status(null);
+            $rule->modifyQuery($query);
+            $found = array_map('intval', $query->ids());
+            sort($found);
+
+            // Matching one asset in memory agrees with the query.
+            foreach (Asset::find()->id($ids)->siteId(self::$primarySiteId)->status(null)->all() as $asset) {
+                self::assertSame(in_array((int)$asset->id, $found, true), $rule->matchElement($asset), "$asset->filename for " . implode(',', $values));
+            }
+
+            return $found;
+        };
+
+        self::assertSame([(int)$missing->id], $filter(['missing']));
+        self::assertSame([(int)$missing->id, (int)$good->id], $filter(['missing', 'good']));
+        self::assertSame([(int)$unchecked->id], $filter(['notChecked']));
+        self::assertSame([(int)$good->id, (int)$unchecked->id, (int)$file->id], $filter(['missing'], 'ni'));
+
+        // The rule is offered in asset conditions (the Assets index filters, custom sources).
+        $condition = Craft::$app->getConditions()->createCondition(['class' => \craft\elements\conditions\assets\AssetCondition::class, 'elementType' => Asset::class]);
+        $types = array_map(static fn($rule): string => $rule::class, $condition->getSelectableConditionRules());
+        self::assertContains(\Tahadudhiya\AltMonitor\conditions\AltStatusConditionRule::class, $types);
+    }
+
+    public function testInAnotherSiteSharedAltTextIsReadFromThePrimarySitesAudit(): void
+    {
+        $other = (int)array_values(array_diff(Craft::$app->getSites()->getAllSiteIds(), [self::$primarySiteId]))[0];
+        $shared = self::savedImage('IMG_9440.jpg');
+        $translated = self::savedImage('IMG_9441.jpg', 'A heron fishing in a pond', self::$translated);
+        self::plugin()->getAltTextEditor()->save((int)$translated->id, $other, '', $this->editor());
+
+        $inOther = Asset::find()->id([$shared->id, $translated->id])->siteId($other)->status(null)->indexBy('id')->all();
+        $statuses = self::plugin()->getAudits()->statusesFor(array_values($inOther));
+
+        // The shared volume is audited once, in the primary site; the translated one per site.
+        self::assertSame('missing', $statuses[$shared->id . '-' . $other]['status']->value ?? null);
+        self::assertSame('missing', $statuses[$translated->id . '-' . $other]['status']->value ?? null);
+        self::assertSame('good', self::plugin()->getAudits()->statusesFor([$translated])[$translated->id . '-' . self::$primarySiteId]['status']->value ?? null);
+
+        $rule = new \Tahadudhiya\AltMonitor\conditions\AltStatusConditionRule();
+        $rule->setValues(['missing']);
+        $query = Asset::find()->id([$shared->id, $translated->id])->siteId($other)->status(null);
+        $rule->modifyQuery($query);
+        $found = array_map('intval', $query->ids());
+        sort($found);
+        self::assertSame([(int)$shared->id, (int)$translated->id], $found);
     }
 
     // Settings

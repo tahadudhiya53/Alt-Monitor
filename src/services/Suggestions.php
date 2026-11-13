@@ -4,12 +4,14 @@ namespace Tahadudhiya\AltMonitor\services;
 
 use Craft;
 use craft\db\Query;
+use craft\db\Table;
 use craft\elements\Asset;
 use craft\elements\User;
 use craft\helpers\DateTimeHelper;
 use craft\helpers\Db;
 use craft\helpers\Queue;
 use DateTime;
+use Tahadudhiya\AltMonitor\ai\Translations;
 use Tahadudhiya\AltMonitor\AltMonitor;
 use Tahadudhiya\AltMonitor\enums\SuggestionSource;
 use Tahadudhiya\AltMonitor\enums\SuggestionStatus;
@@ -54,9 +56,12 @@ class Suggestions extends Component
      * Stores a description the browser's model wrote for an image the user may view. One that only
      * repeats the image's current alt text is not stored (null is returned).
      *
+     * `$translated` is the browser saying it translated the description into the site's language;
+     * the basis names the model only when the site's language has one.
+     *
      * @throws AltTextException when there is no such image, or the description isn't usable.
      */
-    public function storeDescription(int $assetId, int $siteId, string $description, User $user): ?Suggestion
+    public function storeDescription(int $assetId, int $siteId, string $description, User $user, bool $translated = false): ?Suggestion
     {
         $plugin = AltMonitor::getInstance();
         $asset = $this->viewableImage($assetId, $siteId, $user);
@@ -70,7 +75,7 @@ class Suggestions extends Component
         $text = AltTextEditor::sanitize($text);
 
         if ($plugin->getAnalyzer()->isWeak($text, (string)$asset->getFilename())) {
-            throw new AltTextException(Craft::t('alt-monitor', 'The model’s description was not usable as alt text.'));
+            throw new AltTextException(Craft::t('alt-monitor', 'The description couldn’t be used as alt text.'));
         }
 
         // Repeating the alt text the image already has suggests nothing; any suggestion already
@@ -79,10 +84,39 @@ class Suggestions extends Component
             return null;
         }
 
-        $basis = AiProviders::browserModelLabel($plugin->getSettings()->browserModel);
+        $translation = $translated ? Translations::forLanguage(Translations::languageFor($asset->getSite())) : null;
+        $basis = AiProviders::browserModelLabel($plugin->getSettings()->browserModel, $translation['model'] ?? null);
         $this->store($assetId, $siteId, new SuggestionDraft($text, SuggestionSource::AI, $basis, true), null);
 
         return $this->get($assetId, $siteId) ?? throw new \LogicException('A suggestion just stored could not be read.');
+    }
+
+    /**
+     * Replaces an English suggestion waiting for review with its translation into the site's
+     * language, made in the browser. It stays a suggestion waiting for review; its basis adds the
+     * translation model.
+     *
+     * @throws AltTextException when there is no such suggestion, it can't be translated, or the
+     * translation isn't usable.
+     */
+    public function storeTranslation(int $id, string $translated, User $user): Suggestion
+    {
+        $suggestion = $this->getById($id) ?? throw new AltTextException(Craft::t('alt-monitor', 'There is no such suggestion.'));
+        $asset = $this->viewableImage($suggestion->assetId, $suggestion->siteId, $user);
+        $translation = $suggestion->translation()
+            ?? throw new AltTextException(Craft::t('alt-monitor', 'This suggestion can’t be translated.'));
+        $text = AltTextEditor::sanitize($translated);
+
+        if ($text === '' || AltMonitor::getInstance()->getAnalyzer()->isWeak($text, (string)$asset->getFilename())) {
+            throw new AltTextException(Craft::t('alt-monitor', 'The translation couldn’t be used as alt text.'));
+        }
+
+        Db::update(SuggestionRecord::TABLE, [
+            'suggestedAlt' => $text,
+            'basis' => mb_substr(AiProviders::translatedBasis($suggestion->basis, $translation['model']), 0, 255),
+        ], ['id' => $id]);
+
+        return $this->get($suggestion->assetId, $suggestion->siteId) ?? throw new \LogicException('A suggestion just translated could not be read.');
     }
 
     /** Whether two alt texts say the same, ignoring case, spacing and a final full stop. */
@@ -102,7 +136,7 @@ class Suggestions extends Component
     {
         $asset = $assetId > 0 ? Asset::find()->id($assetId)->siteId($siteId)->status(null)->one() : null;
 
-        if (!$asset instanceof Asset || $asset->kind !== Asset::KIND_IMAGE || !Craft::$app->getElements()->canView($asset, $user)) {
+        if (!$asset instanceof Asset || $asset->kind !== Asset::KIND_IMAGE || !AltMonitor::getInstance()->getAssetScanner()->userMay($asset, $user)) {
             throw new AltTextException(Craft::t('alt-monitor', 'There is no such image.'));
         }
 
@@ -113,7 +147,8 @@ class Suggestions extends Component
      * Marks images as being generated, leaving out those already waiting in the queue.
      *
      * @param list<array{0: int, 1: int}> $pairs Asset and site IDs.
-     * @return list<array{0: int, 1: int}> The pairs reserved.
+     * @return list<array{0: int, 1: int, 2?: string}> The pairs reserved, with the status of the
+     * suggestion they had (kept if generating a new one fails), where it had one.
      */
     public function reserve(array $pairs): array
     {
@@ -143,7 +178,10 @@ class Suggestions extends Component
                 'source' => $existing?->source->value ?? SuggestionSource::RULES->value,
                 'status' => SuggestionStatus::QUEUED->value,
             ], ['status' => SuggestionStatus::QUEUED->value, 'error' => null]);
-            $reserved[$key] = [$assetId, $siteId];
+            // Text from a run that failed or died keeps its failed status, but is never lost.
+            $reserved[$key] = $existing?->suggestedAlt !== null
+                ? [$assetId, $siteId, (in_array($existing->status, [SuggestionStatus::QUEUED, SuggestionStatus::FAILED], true) ? SuggestionStatus::FAILED : $existing->status)->value]
+                : [$assetId, $siteId];
         }
 
         return array_values($reserved);
@@ -177,6 +215,26 @@ class Suggestions extends Component
         Queue::push(new GenerateAltTextJob(['walk' => true, 'volumeIds' => $volumeIds]));
     }
 
+    /**
+     * Puts back the suggestion an image had before it was reserved, when no new one could be
+     * made, with the reason.
+     *
+     * @return bool Whether there was one to put back.
+     */
+    public function keepPrevious(int $assetId, int $siteId, SuggestionStatus $previous, ?string $reason): bool
+    {
+        if ($this->get($assetId, $siteId)?->suggestedAlt === null) {
+            return false;
+        }
+
+        $message = $reason !== null && $reason !== ''
+            ? Craft::t('alt-monitor', 'No new suggestion could be made ({reason}), so the last one was kept.', ['reason' => $reason])
+            : Craft::t('alt-monitor', 'No new suggestion could be made, so the last one was kept.');
+        Db::update(SuggestionRecord::TABLE, ['status' => $previous->value, 'error' => mb_substr($message, 0, 1000)], ['assetId' => $assetId, 'siteId' => $siteId], updateTimestamp: false);
+
+        return true;
+    }
+
     /** Records that generating an image's suggestion failed, so it is no longer shown as generating. */
     public function markFailed(int $assetId, int $siteId, string $error): void
     {
@@ -186,8 +244,11 @@ class Suggestions extends Component
     /**
      * Generates and stores the suggestion for one image now, on the server: by Ollama when it is
      * configured, and from the caption, title or file name only where the settings allow it.
+     *
+     * @param SuggestionStatus|null $previous The status of the suggestion the image had before it
+     * was reserved. When no new one can be made, that suggestion is kept, with the reason.
      */
-    public function generate(int $assetId, int $siteId): ?Suggestion
+    public function generate(int $assetId, int $siteId, ?SuggestionStatus $previous = null): ?Suggestion
     {
         $mutex = Craft::$app->getMutex();
         $lock = "altmonitor:suggest:$assetId-$siteId";
@@ -206,6 +267,11 @@ class Suggestions extends Component
             }
 
             [$draft, $error] = $this->draft($asset);
+
+            if ($draft === null && $previous !== null && $this->keepPrevious($assetId, $siteId, $previous, $error)) {
+                return $this->get($assetId, $siteId);
+            }
+
             $this->store($assetId, $siteId, $draft, $error);
 
             return $this->get($assetId, $siteId);
@@ -257,13 +323,13 @@ class Suggestions extends Component
         $suggestion = $this->getById($id) ?? throw new AltTextException(Craft::t('alt-monitor', 'There is no such suggestion.'));
 
         if (!$suggestion->canApprove()) {
-            throw new AltTextException(Craft::t('alt-monitor', 'Only a suggestion waiting for review can be approved.'));
+            throw new AltTextException(Craft::t('alt-monitor', 'Only suggestions waiting for review can be approved.'));
         }
 
         $text = AltTextEditor::sanitize($editedText ?? (string)$suggestion->suggestedAlt);
 
         if ($text === '') {
-            throw new AltTextException(Craft::t('alt-monitor', 'Approved alt text can’t be empty. Mark the image as decorative instead.'));
+            throw new AltTextException(Craft::t('alt-monitor', 'Alt text can’t be empty. Mark the image as decorative instead.'));
         }
 
         AltMonitor::getInstance()->getAltTextEditor()->save($suggestion->assetId, $suggestion->siteId, $text, $user);
@@ -296,6 +362,30 @@ class Suggestions extends Component
     }
 
     /**
+     * Marks the waiting suggestion for an image approved when the image was saved with its text,
+     * as happens after “Use” in Craft's asset editor fills the Alt Text field with it.
+     *
+     * @return bool Whether a suggestion was marked approved.
+     */
+    public function markUsedIfSaved(int $assetId, int $siteId, ?string $alt): bool
+    {
+        $suggestion = $this->get($assetId, $siteId);
+
+        if (
+            $alt === null || $alt === ''
+            || $suggestion?->status !== SuggestionStatus::PENDING
+            || $suggestion->suggestedAlt === null
+            || !self::sameText($suggestion->suggestedAlt, $alt)
+        ) {
+            return false;
+        }
+
+        Db::update(SuggestionRecord::TABLE, ['status' => SuggestionStatus::APPROVED->value, 'suggestedAlt' => $alt], ['id' => $suggestion->id]);
+
+        return true;
+    }
+
+    /**
      * @throws AltTextException when there is no such suggestion, or it isn't waiting for review.
      */
     public function reject(int $id, User $user): void
@@ -304,7 +394,7 @@ class Suggestions extends Component
         $this->viewableImage($suggestion->assetId, $suggestion->siteId, $user);
 
         if ($suggestion->status !== SuggestionStatus::PENDING && $suggestion->status !== SuggestionStatus::FAILED) {
-            throw new AltTextException(Craft::t('alt-monitor', 'Only a suggestion waiting for review can be rejected.'));
+            throw new AltTextException(Craft::t('alt-monitor', 'Only suggestions waiting for review can be rejected.'));
         }
 
         Db::update(SuggestionRecord::TABLE, ['status' => SuggestionStatus::REJECTED->value], ['id' => $id]);
@@ -370,9 +460,17 @@ class Suggestions extends Component
     /**
      * @param list<int> $volumeIds
      */
-    public function count(SuggestionStatus $status, array $volumeIds): int
+    public function count(SuggestionStatus $status, array $volumeIds, ?User $user = null): int
     {
-        return (int)$this->query($volumeIds)->andWhere(['suggestions.status' => $status->value])->count();
+        $query = $this->query($volumeIds)->andWhere(['suggestions.status' => $status->value]);
+        $visible = AltMonitor::getInstance()->getAudits()->visibleCondition($user);
+
+        // For a person: only those they may see, as the list shows.
+        if ($visible !== []) {
+            $query->innerJoin(['assets' => Table::ASSETS], '[[assets.id]] = [[suggestions.assetId]]')->andWhere($visible);
+        }
+
+        return (int)$query->count();
     }
 
     /**
@@ -393,6 +491,10 @@ class Suggestions extends Component
         if ($criteria->search !== '') {
             $query->andWhere(['like', 'suggestions.suggestedAlt', $criteria->search]);
         }
+
+        $query
+            ->innerJoin(['assets' => Table::ASSETS], '[[assets.id]] = [[suggestions.assetId]]')
+            ->andWhere(AltMonitor::getInstance()->getAudits()->visibleCondition($user));
 
         $total = (int)$query->count();
         $rows = $query
@@ -434,7 +536,7 @@ class Suggestions extends Component
                 $text = $ai->getPromptBuilder()->parse($provider->describe($image, $ai->getPromptBuilder()->build($context)));
 
                 if ($plugin->getAnalyzer()->isWeak($text, $context->filename)) {
-                    throw new AiProviderException(Craft::t('alt-monitor', 'The model’s description was not usable as alt text.'));
+                    throw new AiProviderException(Craft::t('alt-monitor', 'The description couldn’t be used as alt text.'));
                 }
 
                 return [new SuggestionDraft($text, SuggestionSource::AI, $provider->modelName(), true), null];
@@ -444,7 +546,7 @@ class Suggestions extends Component
         }
 
         if (!$plugin->getSettings()->fallbackToRules) {
-            return [null, $error ?? Craft::t('alt-monitor', 'Suggestions are described from the image in your browser. Use “Describe” on this image.')];
+            return [null, $error ?? Craft::t('alt-monitor', 'Suggestions are made in your browser. Use “Describe” on this image.')];
         }
 
         return [$plugin->getSuggestionGenerator()->suggest($context), $error];
@@ -453,8 +555,8 @@ class Suggestions extends Component
     private function store(int $assetId, int $siteId, ?SuggestionDraft $draft, ?string $aiError): void
     {
         $error = $draft === null
-            ? ($aiError ?? Craft::t('alt-monitor', 'Nothing about the image (caption, title, file name or the content using it) was descriptive enough for a suggestion.'))
-            : ($aiError !== null ? Craft::t('alt-monitor', 'AI could not describe the image ({reason}), so this suggestion is rule-based.', ['reason' => $aiError]) : null);
+            ? ($aiError ?? Craft::t('alt-monitor', 'Nothing about the image (caption, title, file name or where it’s used) said enough to suggest alt text.'))
+            : ($aiError !== null ? Craft::t('alt-monitor', 'The AI couldn’t describe the image ({reason}), so this suggestion comes from the image’s details.', ['reason' => $aiError]) : null);
         $columns = [
             'suggestedAlt' => $draft?->text,
             'source' => ($draft->source ?? (AltMonitor::getInstance()->getAiProviders()->getProvider() !== null ? SuggestionSource::AI : SuggestionSource::RULES))->value,
