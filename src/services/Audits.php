@@ -158,10 +158,35 @@ class Audits extends Component
      * @param list<int>|null $volumeIds
      * @return list<array{id: int, assetId: int, siteId: int}>
      */
-    public function needingSuggestions(int $afterId, int $limit, ?array $volumeIds = null): array
+    public function needingSuggestions(int $afterId, int $limit, ?array $volumeIds = null, ?User $user = null): array
     {
-        $rows = (new Query())
+        $rows = $this->needingSuggestionsQuery($volumeIds, $user)
             ->select(['audits.id', 'audits.assetId', 'audits.siteId'])
+            ->andWhere(['>', 'audits.id', $afterId])
+            ->orderBy(['audits.id' => SORT_ASC])
+            ->limit($limit)
+            ->all();
+
+        return array_map(static fn(array $row): array => ['id' => (int)$row['id'], 'assetId' => (int)$row['assetId'], 'siteId' => (int)$row['siteId']], $rows);
+    }
+
+    /**
+     * How many audits {@see needingSuggestions()} walks through, so describing them all can say
+     * how far along it is.
+     *
+     * @param list<int>|null $volumeIds
+     */
+    public function countNeedingSuggestions(?array $volumeIds = null, ?User $user = null): int
+    {
+        return (int)$this->needingSuggestionsQuery($volumeIds, $user)->count();
+    }
+
+    /**
+     * @param list<int>|null $volumeIds
+     */
+    private function needingSuggestionsQuery(?array $volumeIds, ?User $user = null): Query
+    {
+        $query = (new Query())
             ->from(['audits' => AuditRecord::TABLE])
             ->leftJoin(['suggestions' => SuggestionRecord::TABLE], '[[suggestions.assetId]] = [[audits.assetId]] AND [[suggestions.siteId]] = [[audits.siteId]]')
             ->where(['audits.altStatus' => [AltStatus::MISSING->value, AltStatus::WEAK->value]])
@@ -170,19 +195,21 @@ class Audits extends Component
                 ['suggestions.status' => SuggestionStatus::FAILED->value],
                 // A reservation whose job died without generating anything.
                 ['and', ['suggestions.status' => SuggestionStatus::QUEUED->value], ['<', 'suggestions.dateUpdated', Db::prepareDateForDb(new DateTime('@' . (time() - Suggestions::RESERVATION_TIMEOUT)))]],
-            ])
-            ->andWhere(['>', 'audits.id', $afterId])
-            ->orderBy(['audits.id' => SORT_ASC])
-            ->limit($limit);
+            ]);
 
         // An empty list means no volume at all, not every volume.
         if ($volumeIds !== null) {
-            $rows->andWhere(['audits.volumeId' => $volumeIds]);
+            $query->andWhere(['audits.volumeId' => $volumeIds]);
         }
 
-        $rows = $rows->all();
+        // For a person (describing in the browser): only images they may see.
+        $visible = $this->visibleCondition($user);
 
-        return array_map(static fn(array $row): array => ['id' => (int)$row['id'], 'assetId' => (int)$row['assetId'], 'siteId' => (int)$row['siteId']], $rows);
+        if ($visible !== []) {
+            $query->innerJoin(['assets' => Table::ASSETS], '[[assets.id]] = [[audits.assetId]]')->andWhere($visible);
+        }
+
+        return $query;
     }
 
     /**
@@ -204,9 +231,54 @@ class Audits extends Component
     }
 
     /**
+     * The rows a user may see, in SQL, so lists count and page only those: Craft's own rules for
+     * other people's uploads (`viewPeerAssets`) and for sites (`editSite`, except in volumes whose
+     * alt text is shared, which may be edited from any site). Expects `audits` and `assets`
+     * aliases. Rows are still checked one by one with Craft afterwards.
+     *
+     * @return array<int|string, mixed>
+     */
+    public function visibleCondition(?User $user): array
+    {
+        if ($user === null || $user->admin) {
+            return [];
+        }
+
+        $condition = ['and'];
+        $ownOnly = [];
+
+        foreach (Craft::$app->getVolumes()->getAllVolumes() as $volume) {
+            if (!$user->can("viewPeerAssets:$volume->uid")) {
+                $ownOnly[] = (int)$volume->id;
+            }
+        }
+
+        if ($ownOnly !== []) {
+            $condition[] = ['or', ['not', ['audits.volumeId' => $ownOnly]], ['assets.uploaderId' => $user->id]];
+        }
+
+        if (Craft::$app->getIsMultiSite()) {
+            $siteIds = [];
+
+            foreach (Craft::$app->getSites()->getAllSites() as $site) {
+                if ($user->can("editSite:$site->uid")) {
+                    $siteIds[] = (int)$site->id;
+                }
+            }
+
+            // Shared alt text may be edited from any site, but only by someone who may edit one.
+            $condition[] = $siteIds === []
+                ? ['audits.siteId' => []]
+                : ['or', ['audits.siteId' => $siteIds], ['audits.volumeId' => AltMonitor::getInstance()->getAssetScanner()->sharedAltVolumeIds()]];
+        }
+
+        return count($condition) > 1 ? $condition : [];
+    }
+
+    /**
      * @param list<int> $volumeIds
      */
-    public function stats(array $volumeIds): DashboardStats
+    public function stats(array $volumeIds, ?User $user = null): DashboardStats
     {
         $counts = static fn(string $column): array => array_map('intval', (new Query())
             ->select(['COUNT(*)'])
@@ -227,7 +299,7 @@ class Audits extends Component
             good: $status[AltStatus::GOOD->value] ?? 0,
             review: $status[AltStatus::REVIEW->value] ?? 0,
             decorative: (int)(clone $base)->andWhere(['decorative' => true])->count(),
-            pendingSuggestions: AltMonitor::getInstance()->getSuggestions()->count(SuggestionStatus::PENDING, $volumeIds),
+            pendingSuggestions: AltMonitor::getInstance()->getSuggestions()->count(SuggestionStatus::PENDING, $volumeIds, $user),
             updated: (int)(clone $base)->andWhere(['not', ['dateAltSaved' => null]])->count(),
             used: $usage[UsageStatus::USED->value] ?? 0,
             unused: $usage[UsageStatus::UNUSED->value] ?? 0,
@@ -266,6 +338,8 @@ class Audits extends Component
             $query->andWhere(['or', ['like', 'assets.filename', $criteria->search], ['like', 'elements_sites.title', $criteria->search]]);
         }
 
+        $query->andWhere($this->visibleCondition($user));
+
         $total = (int)$query->count('[[audits.id]]');
         $rows = $query
             ->select(['audits.*'])
@@ -275,6 +349,57 @@ class Audits extends Component
             ->all();
 
         return new AuditPage($this->items($rows, $user), $total, $criteria->page, ListCriteria::PER_PAGE);
+    }
+
+    /**
+     * The audit status of several assets as each is seen in its own site (an element index's
+     * page of them), read in one query. Assets with no audit (not images, or not scanned yet) are
+     * left out.
+     *
+     * @param Asset[] $assets
+     * @return array<string, array{status: AltStatus, issues: list<\Tahadudhiya\AltMonitor\enums\AltIssue>, decorative: bool}>
+     *         By `assetId-siteId`, the site being the asset's own.
+     */
+    public function statusesFor(array $assets): array
+    {
+        $scanner = AltMonitor::getInstance()->getAssetScanner();
+        $lookups = [];
+
+        foreach ($assets as $asset) {
+            if ($asset->id && $asset->kind === Asset::KIND_IMAGE) {
+                $auditSiteId = $scanner->auditSiteId((int)$asset->volumeId, (int)$asset->siteId);
+                $lookups[$auditSiteId . '-' . $asset->id][] = $asset->id . '-' . $asset->siteId;
+            }
+        }
+
+        if ($lookups === []) {
+            return [];
+        }
+
+        $rows = (new Query())
+            ->select(['assetId', 'siteId', 'altStatus', 'issues', 'decorative'])
+            ->from(AuditRecord::TABLE)
+            ->where(['or', ...array_map(static function(string $key): array {
+                [$siteId, $assetId] = explode('-', $key);
+
+                return ['assetId' => (int)$assetId, 'siteId' => (int)$siteId];
+            }, array_keys($lookups))])
+            ->all();
+        $statuses = [];
+
+        foreach ($rows as $row) {
+            $status = [
+                'status' => AltStatus::from($row['altStatus']),
+                'issues' => AltAnalysis::issuesFromString($row['issues']),
+                'decorative' => (bool)$row['decorative'],
+            ];
+
+            foreach ($lookups[$row['siteId'] . '-' . $row['assetId']] ?? [] as $key) {
+                $statuses[$key] = $status;
+            }
+        }
+
+        return $statuses;
     }
 
     /**
@@ -327,14 +452,14 @@ class Audits extends Component
         $pairs = array_map(static fn(array $row): array => [(int)$row['assetId'], (int)$row['siteId']], $rows);
         $suggestions = $plugin->getSuggestions()->forPairs($pairs);
         $usageCounts = $plugin->getContentUsage()->counts(array_map('intval', array_column($rows, 'assetId')));
-        $elements = Craft::$app->getElements();
+        $scanner = $plugin->getAssetScanner();
         $items = [];
 
         foreach ($rows as $row) {
             $asset = $assets[(int)$row['siteId']][(int)$row['assetId']] ?? null;
 
             // Craft's own rule, which also covers other people's uploads (viewPeerAssets).
-            if (!$asset instanceof Asset || ($user !== null && !$elements->canView($asset, $user))) {
+            if (!$asset instanceof Asset || ($user !== null && !$scanner->userMay($asset, $user))) {
                 continue;
             }
 
@@ -349,7 +474,7 @@ class Audits extends Component
                 suggestion: $suggestions[$row['assetId'] . '-' . $row['siteId']] ?? null,
                 dateScanned: DateTimeHelper::toDateTime($row['dateScanned']) ?: new DateTime(),
                 dateAltSaved: $row['dateAltSaved'] ? (DateTimeHelper::toDateTime($row['dateAltSaved']) ?: null) : null,
-                canEdit: $user !== null && $elements->canSave($asset, $user),
+                canEdit: $user !== null && $scanner->userMay($asset, $user, true),
             );
         }
 

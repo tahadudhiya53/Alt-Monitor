@@ -56,11 +56,11 @@ class AltTextEditor extends Component
         }
 
         if ($asset->kind !== Asset::KIND_IMAGE) {
-            throw new AltTextException(Craft::t('alt-monitor', 'Only images have alt text managed here.'));
+            throw new AltTextException(Craft::t('alt-monitor', 'Only images are managed here.'));
         }
 
-        if (!Craft::$app->getElements()->canSave($asset, $user)) {
-            throw new AltTextException(Craft::t('alt-monitor', 'You may not edit this image.'));
+        if (!AltMonitor::getInstance()->getAssetScanner()->userMay($asset, $user, true)) {
+            throw new AltTextException(Craft::t('alt-monitor', 'You can’t edit this image.'));
         }
 
         return $asset;
@@ -84,7 +84,7 @@ class AltTextEditor extends Component
 
         if (!Craft::$app->getElements()->saveElement($asset)) {
             throw new AltTextException(Craft::t('alt-monitor', 'The image could not be saved: {errors}', [
-                'errors' => implode(' ', $asset->getFirstErrors()) ?: Craft::t('alt-monitor', 'Craft refused it.'),
+                'errors' => implode(' ', $asset->getFirstErrors()) ?: Craft::t('alt-monitor', 'Craft didn’t allow it.'),
             ]));
         }
 
