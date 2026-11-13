@@ -58,7 +58,7 @@ final class EndpointPolicy
         }
 
         if (isset($parts['user']) || isset($parts['pass']) || isset($parts['query']) || isset($parts['fragment']) || !in_array($parts['path'] ?? '', ['', '/'], true)) {
-            return Craft::t('alt-monitor', 'The endpoint must be a base URL alone, without a path, credentials, query or fragment.');
+            return Craft::t('alt-monitor', 'Use just the base URL, with no path, login, query or #.');
         }
 
         $host = self::normalizeHost($parts['host']);
@@ -68,7 +68,7 @@ final class EndpointPolicy
         }
 
         if (filter_var($host, FILTER_VALIDATE_IP) !== false && self::isBlocked($host)) {
-            return Craft::t('alt-monitor', 'The endpoint’s address is one AltMonitor never connects to.');
+            return Craft::t('alt-monitor', 'AltMonitor never connects to this address.');
         }
 
         return null;
@@ -97,7 +97,7 @@ final class EndpointPolicy
 
         foreach ($addresses as $address) {
             if (self::isBlocked($address)) {
-                throw new \InvalidArgumentException(Craft::t('alt-monitor', 'The endpoint’s address is one AltMonitor never connects to.'));
+                throw new \InvalidArgumentException(Craft::t('alt-monitor', 'AltMonitor never connects to this address.'));
             }
         }
 

@@ -15,8 +15,8 @@ enum SuggestionSource: string
     public function label(): string
     {
         return match ($this) {
-            self::AI => Craft::t('alt-monitor', 'AI (local model)'),
-            self::RULES => Craft::t('alt-monitor', 'Rule-based'),
+            self::AI => Craft::t('alt-monitor', 'AI'),
+            self::RULES => Craft::t('alt-monitor', 'From image details'),
         };
     }
 }

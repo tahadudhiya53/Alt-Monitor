@@ -4,154 +4,175 @@
  # Reviewing suggestions: each one beside its image, editable, approved or rejected right here.
  #}
 {% set title = 'Suggestions'|t('alt-monitor') %}
+{% set bodyClass = 'altmonitor-page' %}
 {% set selectedSubnavItem = 'suggestions' %}
 {% do view.registerAssetBundle('Tahadudhiya\\AltMonitor\\web\\assets\\cp\\CpAsset') %}
 {% do view.registerTranslations('alt-monitor', [
     '{count, number} selected',
-    'Suggestion approved and saved to the image.',
+    'As typed:',
+    'Approved and saved to the image.',
     'Suggestion rejected.',
     'The suggestion could not be approved.',
     'The suggestion could not be rejected.',
-    'All done. No suggestions are waiting for review.',
+    'All done. Nothing to review.',
+    'Approve all {count, number} suggestions on this page? Each one becomes its image’s alt text, including your edits.',
+    'Next suggestions loaded.',
 ]) %}
 
 {% block content %}
     {% import 'alt-monitor/_macros' as macros %}
-    {% set activeStatus = criteria.suggestionStatus.value ?? (criteria.isFiltered() ? null : 'pending') %}
+    {# Wraps the whole list, so it can be loaded again in place once a page is reviewed. #}
+    <div id="altmonitor-suggestions-page" data-altmonitor-review>
+        {% set activeStatus = criteria.suggestionStatus.value ?? (criteria.isFiltered() ? null : 'pending') %}
 
-    {% set narrowed = criteria.search or criteria.source or criteria.siteId %}
-    {# Filtering keeps the chosen tab (by default “To review”). #}
-    <form method="get" action="{{ url('alt-monitor/suggestions') }}" class="altmonitor-toolbar" role="search" id="altmonitor-suggestion-filters" data-altmonitor-autofilter>
-        {% if activeStatus %}{{ hiddenInput('suggestionStatus', activeStatus) }}{% endif %}
-        <div class="altmonitor-toolbar-row">
-            <nav class="altmonitor-tabs" aria-label="{{ 'Suggestion status'|t('alt-monitor') }}">
-                {% for status in ['pending', 'approved', 'rejected', 'failed'] %}
-                    {% set label = {pending: 'To review'|t('alt-monitor'), approved: 'Approved'|t('alt-monitor'), rejected: 'Rejected'|t('alt-monitor'), failed: 'Failed'|t('alt-monitor')}[status] %}
-                    <a href="{{ url('alt-monitor/suggestions', criteria.params({suggestionStatus: status, page: null})) }}"
-                       class="{{ activeStatus == status ? 'is-current' }}" {{ activeStatus == status ? 'aria-current="page"' }}>
-                        {{ label }}
-                        {% if status == 'pending' %}<span class="altmonitor-tab-count" data-pending-count>{{ pendingCount|number }}</span>{% endif %}
-                    </a>
-                {% endfor %}
-            </nav>
+        {% set narrowed = criteria.search or criteria.source or criteria.siteId %}
+        {# Filtering keeps the chosen tab (by default “To review”). #}
+        <form method="get" action="{{ url('alt-monitor/suggestions') }}" class="altmonitor-toolbar" role="search" id="altmonitor-suggestion-filters" data-altmonitor-autofilter>
+            {% if activeStatus %}{{ hiddenInput('suggestionStatus', activeStatus) }}{% endif %}
+            <div class="altmonitor-toolbar-row">
+                <nav class="altmonitor-tabs" aria-label="{{ 'Suggestion status'|t('alt-monitor') }}">
+                    {% for status in ['pending', 'approved', 'rejected', 'failed'] %}
+                        {% set label = {pending: 'To review'|t('alt-monitor'), approved: 'Approved'|t('alt-monitor'), rejected: 'Rejected'|t('alt-monitor'), failed: 'Failed'|t('alt-monitor')}[status] %}
+                        <a href="{{ url('alt-monitor/suggestions', criteria.params({suggestionStatus: status, page: null})) }}"
+                           class="{{ activeStatus == status ? 'is-current' }}" {{ activeStatus == status ? 'aria-current="page"' }}>
+                            {{ label }}
+                            {% if status == 'pending' %}<span class="altmonitor-tab-count" data-pending-count>{{ pendingCount|number }}</span>{% endif %}
+                        </a>
+                    {% endfor %}
+                </nav>
 
-            <div class="altmonitor-filter-boxes">
-                <div class="select">
-                    <select name="source" aria-label="{{ 'Source'|t('alt-monitor') }}">
-                        <option value="">{{ 'Any source'|t('alt-monitor') }}</option>
-                        {% for source in sources %}
-                            <option value="{{ source.value }}" {{ criteria.source == source ? 'selected' }}>{{ source.label() }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                {% if craft.app.isMultiSite %}
+                <div class="altmonitor-filter-boxes">
                     <div class="select">
-                        <select name="inSite" aria-label="{{ 'Site'|t('app') }}">
-                            <option value="">{{ 'All sites'|t('alt-monitor') }}</option>
-                            {% for site in craft.app.sites.getAllSites() %}
-                                <option value="{{ site.handle }}" {{ criteria.siteId == site.id ? 'selected' }}>{{ site.name|t('site') }}</option>
+                        <select name="source" aria-label="{{ 'Source'|t('alt-monitor') }}">
+                            <option value="">{{ 'Any source'|t('alt-monitor') }}</option>
+                            {% for source in sources %}
+                                <option value="{{ source.value }}" {{ criteria.source == source ? 'selected' }}>{{ source.label() }}</option>
                             {% endfor %}
                         </select>
                     </div>
-                {% endif %}
-                {% if narrowed %}
-                    <a class="altmonitor-clear" href="{{ url('alt-monitor/suggestions', {suggestionStatus: activeStatus}) }}">{{ 'Clear filters'|t('alt-monitor') }}</a>
-                {% endif %}
-                <noscript><button type="submit" class="btn">{{ 'Filter'|t('alt-monitor') }}</button></noscript>
-            </div>
-        </div>
-
-        <div class="altmonitor-search texticon search icon">
-            <input type="search" class="text fullwidth" name="search" value="{{ criteria.search }}" maxlength="255"
-                   placeholder="{{ 'Search suggested text'|t('alt-monitor') }}" aria-label="{{ 'Search suggested text'|t('alt-monitor') }}">
-        </div>
-    </form>
-
-    {{ macros.failures(failures) }}
-
-    {% if page.items is empty and page.total > 0 %}
-        {{ macros.pastEnd(page, criteria, 'alt-monitor/suggestions') }}
-    {% elseif page.items is empty %}
-        <div class="zilch" id="altmonitor-no-suggestions">
-            <p>
-                {{ criteria.isFiltered()
-                    ? 'No suggestions match these filters.'|t('alt-monitor')
-                    : 'All done. No suggestions are waiting for review.'|t('alt-monitor') }}
-            </p>
-        </div>
-    {% else %}
-
-        <form method="post" id="altmonitor-suggestions-form" data-altmonitor-selection>
-            {{ csrfInput() }}
-            {{ actionInput('alt-monitor/suggestions/bulk-approve') }}
-            {{ redirectInput(url('alt-monitor/suggestions', criteria.params())) }}
-
-            <div class="tableview">
-                <div class="tablepane">
-                    <table class="data fullwidth altmonitor-table altmonitor-review" id="altmonitor-suggestions">
-                        <thead>
-                            <tr>
-                                {% if canApprove %}
-                                    <td class="checkbox-cell"><input type="checkbox" data-altmonitor-select-all aria-label="{{ 'Select all suggestions on this page'|t('alt-monitor') }}"></td>
-                                {% endif %}
-                                <th scope="col">{{ 'Image'|t('alt-monitor') }}</th>
-                                <th scope="col">{{ 'Suggested alt text'|t('alt-monitor') }}</th>
-                                <th scope="col"><span class="visually-hidden">{{ 'Actions'|t('alt-monitor') }}</span></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for item in page.items %}
-                                {% set asset = item.asset %}
-                                {% set suggestion = item.suggestion %}
-                                {% set approvable = suggestion and suggestion.canApprove() and canApprove and item.canEdit %}
-                                <tr data-id="{{ suggestion.id ?? '' }}">
-                                    {% if canApprove %}
-                                        <td class="checkbox-cell">
-                                            {% if approvable %}
-                                                <input type="checkbox" name="ids[]" value="{{ suggestion.id }}" data-select aria-label="{{ 'Select {name}'|t('alt-monitor', {name: asset.filename}) }}">
-                                            {% endif %}
-                                        </td>
-                                    {% endif %}
-                                    <td class="altmonitor-review-image">
-                                        <a href="{{ url('alt-monitor/images/' ~ asset.id ~ '/' ~ item.siteId) }}" class="altmonitor-review-thumb" tabindex="-1" aria-hidden="true">{{ asset.getThumbHtml(160)|raw }}</a>
-                                        <a href="{{ url('alt-monitor/images/' ~ asset.id ~ '/' ~ item.siteId) }}" class="smalltext altmonitor-review-name">{{ asset.filename }}</a>
-                                    </td>
-                                    <td>
-                                        {% if approvable %}
-                                            <textarea class="text fullwidth" rows="2" name="alt[{{ suggestion.id }}]" maxlength="1000"
-                                                      aria-label="{{ 'Suggested alt text for {name}'|t('alt-monitor', {name: asset.filename}) }}">{{ suggestion.suggestedAlt }}</textarea>
-                                        {% elseif suggestion and suggestion.suggestedAlt %}
-                                            <p>{{ suggestion.suggestedAlt }}</p>
-                                        {% endif %}
-                                        <div class="smalltext light altmonitor-review-meta">
-                                            {% if suggestion %}{% if suggestion.status.value != 'pending' %}{{ macros.suggestionStatus(suggestion) }} {% endif %}{{ suggestion.source.label() }}{% if suggestion.basisLabel() %} · {{ suggestion.basisLabel() }}{% endif %}{% endif %}
-                                            · {{ 'Now:'|t('alt-monitor') }} {{ asset.alt ?: 'no alt text'|t('alt-monitor') }}
-                                        </div>
-                                        {% if suggestion and suggestion.error %}<div class="smalltext error">{{ suggestion.error }}</div>{% endif %}
-                                    </td>
-                                    <td class="altmonitor-row-actions">
-                                        {% if approvable %}
-                                            <div class="flex flex-nowrap">
-                                                <button type="button" class="btn submit small" data-approve="{{ suggestion.id }}">{{ 'Approve'|t('alt-monitor') }}</button>
-                                                <button type="button" class="btn small" data-reject="{{ suggestion.id }}">{{ 'Reject'|t('alt-monitor') }}</button>
-                                            </div>
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+                    {% if craft.app.isMultiSite %}
+                        <div class="select">
+                            <select name="inSite" aria-label="{{ 'Site'|t('app') }}">
+                                <option value="">{{ 'All sites'|t('alt-monitor') }}</option>
+                                {% for site in craft.app.sites.getAllSites() %}
+                                    <option value="{{ site.handle }}" {{ criteria.siteId == site.id ? 'selected' }}>{{ site.name|t('site') }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    {% endif %}
+                    {% if narrowed %}
+                        <a class="altmonitor-clear" href="{{ url('alt-monitor/suggestions', {suggestionStatus: activeStatus}) }}">{{ 'Clear filters'|t('alt-monitor') }}</a>
+                    {% endif %}
+                    <noscript><button type="submit" class="btn">{{ 'Filter'|t('alt-monitor') }}</button></noscript>
                 </div>
             </div>
 
-            {% if canApprove %}
-                <div class="altmonitor-bulk" id="altmonitor-bulk-approve">
-                    <span class="altmonitor-bulk-count" data-selected-count>{{ 'Select suggestions to approve several at once.'|t('alt-monitor') }}</span>
-                    <button type="submit" class="btn" data-needs-selection>{{ 'Approve selected'|t('alt-monitor') }}</button>
-                </div>
-            {% endif %}
+            <div class="altmonitor-search texticon search icon">
+                <input type="search" class="text fullwidth" name="search" value="{{ criteria.search }}" maxlength="255"
+                       placeholder="{{ 'Search suggestions'|t('alt-monitor') }}" aria-label="{{ 'Search suggestions'|t('alt-monitor') }}">
+            </div>
         </form>
 
-        {{ macros.pagination(page, criteria, 'alt-monitor/suggestions', 'suggestions'|t('alt-monitor')) }}
-    {% endif %}
+        {{ macros.failures(failures) }}
+
+        {% if page.items is empty and page.total > 0 %}
+            {{ macros.pastEnd(page, criteria, 'alt-monitor/suggestions') }}
+        {% elseif page.items is empty %}
+            <div class="zilch" id="altmonitor-no-suggestions">
+                <p>
+                    {{ criteria.isFiltered()
+                        ? 'No suggestions match these filters.'|t('alt-monitor')
+                        : 'All done. Nothing to review.'|t('alt-monitor') }}
+                </p>
+            </div>
+        {% else %}
+
+            {% if canApprove %}
+                <p class="altmonitor-shortcuts" id="altmonitor-shortcuts">
+                    {{ '{approve} approves this suggestion and moves to the next. {reject} rejects it.'|t('alt-monitor', {
+                        approve: '<kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>Enter</kbd>',
+                        reject: '<kbd>Esc</kbd>',
+                    })|raw }}
+                </p>
+            {% endif %}
+
+            <form method="post" id="altmonitor-suggestions-form" data-altmonitor-selection data-altmonitor-unsaved>
+                {{ csrfInput() }}
+                {{ actionInput('alt-monitor/suggestions/bulk-approve') }}
+                {{ redirectInput(url('alt-monitor/suggestions', criteria.params())) }}
+
+                <div class="tableview">
+                    <div class="tablepane">
+                        <table class="data fullwidth altmonitor-table altmonitor-review" id="altmonitor-suggestions">
+                            <thead>
+                                <tr>
+                                    {% if canApprove %}
+                                        <td class="checkbox-cell"><input type="checkbox" data-altmonitor-select-all aria-label="{{ 'Select all suggestions on this page'|t('alt-monitor') }}"></td>
+                                    {% endif %}
+                                    <th scope="col">{{ 'Image'|t('alt-monitor') }}</th>
+                                    <th scope="col">{{ 'Suggested alt text'|t('alt-monitor') }}</th>
+                                    <th scope="col"><span class="visually-hidden">{{ 'Actions'|t('alt-monitor') }}</span></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in page.items %}
+                                    {% set asset = item.asset %}
+                                    {% set suggestion = item.suggestion %}
+                                    {% set approvable = suggestion and suggestion.canApprove() and canApprove and item.canEdit %}
+                                    {% set key = asset.id ~ '-' ~ item.siteId %}
+                                    <tr data-id="{{ suggestion.id ?? '' }}" data-key="{{ key }}" data-altmonitor-refresh="row-{{ key }}">
+                                        {% if canApprove %}
+                                            <td class="checkbox-cell">
+                                                {% if approvable %}
+                                                    <input type="checkbox" name="ids[]" value="{{ suggestion.id }}" data-select aria-label="{{ 'Select {name}'|t('alt-monitor', {name: asset.filename}) }}">
+                                                {% endif %}
+                                            </td>
+                                        {% endif %}
+                                        <td class="altmonitor-review-image">
+                                            <a href="{{ url('alt-monitor/images/' ~ asset.id ~ '/' ~ item.siteId) }}" class="altmonitor-review-thumb" tabindex="-1" aria-hidden="true">{{ asset.getThumbHtml(160)|raw }}</a>
+                                            <a href="{{ url('alt-monitor/images/' ~ asset.id ~ '/' ~ item.siteId) }}" class="smalltext altmonitor-review-name">{{ asset.filename }}</a>
+                                        </td>
+                                        <td>
+                                            {% if approvable %}
+                                                <textarea class="text fullwidth" rows="2" name="alt[{{ suggestion.id }}]" maxlength="1000" aria-describedby="altmonitor-shortcuts" data-altmonitor-check="{{ asset.id }}-{{ item.siteId }}"
+                                                          aria-label="{{ 'Suggested alt text for {name}'|t('alt-monitor', {name: asset.filename}) }}">{{ suggestion.suggestedAlt }}</textarea>
+                                            {% elseif suggestion and suggestion.suggestedAlt %}
+                                                <p>{{ suggestion.suggestedAlt }}</p>
+                                            {% endif %}
+                                            <div class="smalltext light altmonitor-review-meta">
+                                                {% if suggestion %}{% if suggestion.status.value != 'pending' %}{{ macros.suggestionStatus(suggestion) }} {% endif %}{{ suggestion.source.label() }}{% if suggestion.basisLabel() %} · {{ suggestion.basisLabel() }}{% endif %}{% endif %}
+                                                · {{ 'Current:'|t('alt-monitor') }} {{ asset.alt ?: 'no alt text'|t('alt-monitor') }}
+                                            </div>
+                                            {{ macros.translationNote(suggestion, translator ?? null) }}
+                                            {% if suggestion and suggestion.error %}<div class="smalltext error">{{ suggestion.error }}</div>{% endif %}
+                                        </td>
+                                        <td class="altmonitor-row-actions">
+                                            {% if approvable %}
+                                                <div class="flex flex-nowrap">
+                                                    <button type="button" class="btn submit small" data-approve="{{ suggestion.id }}" aria-keyshortcuts="Control+Enter Meta+Enter">{{ 'Approve'|t('alt-monitor') }}</button>
+                                                    <button type="button" class="btn small" data-reject="{{ suggestion.id }}" aria-keyshortcuts="Escape">{{ 'Reject'|t('alt-monitor') }}</button>
+                                                </div>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                {% if canApprove %}
+                    <div class="altmonitor-bulk" id="altmonitor-bulk-approve">
+                        <span class="altmonitor-bulk-count" data-selected-count>{{ 'Select suggestions to approve several at once.'|t('alt-monitor') }}</span>
+                        <button type="submit" class="btn" data-needs-selection>{{ 'Approve selected'|t('alt-monitor') }}</button>
+                        <button type="button" class="btn" data-approve-all hidden>{{ 'Approve all on this page'|t('alt-monitor') }}</button>
+                    </div>
+                {% endif %}
+            </form>
+
+            {{ macros.pagination(page, criteria, 'alt-monitor/suggestions', 'suggestions'|t('alt-monitor')) }}
+        {% endif %}
+    </div>
+    {# Outside the list, which is replaced when it is loaded again in place. #}
+    {% if translator %}{% include 'alt-monitor/_describer' with {describer: translator} %}{% endif %}
 {% endblock %}

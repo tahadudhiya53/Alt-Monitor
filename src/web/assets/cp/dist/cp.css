@@ -49,6 +49,31 @@ a.altmonitor-card:focus-visible {
     transition: width 0.3s;
 }
 
+/* Work of unknown length (a model starting from the browser's cache): a moving bar, not a number. */
+.altmonitor-progress--busy > div {
+    width: 40% !important;
+    transition: none;
+    animation: altmonitor-busy 1.2s ease-in-out infinite;
+}
+
+@keyframes altmonitor-busy {
+    from {
+        transform: translateX(-100%);
+    }
+
+    to {
+        transform: translateX(250%);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .altmonitor-progress--busy > div {
+        width: 100% !important;
+        opacity: 0.4;
+        animation: none;
+    }
+}
+
 .altmonitor-thumb img {
     display: block;
     max-width: 64px;
@@ -499,23 +524,24 @@ a.altmonitor-card:focus-visible {
     background: rgba(255, 255, 255, 0.2);
 }
 
-/* Craft's page header doesn't wrap by default; long titles/actions can spill on narrow screens. */
-#header {
+/* Craft's page header doesn't wrap by default; long titles/actions can spill on narrow screens.
+   Only on AltMonitor's pages: this stylesheet also loads in Craft's asset editor. */
+.altmonitor-page #header {
     flex-wrap: wrap;
     min-width: 0;
 }
 
-#page-title {
+.altmonitor-page #page-title {
     flex: 1 1 auto;
     min-width: 0;
 }
 
-#page-heading {
+.altmonitor-page #page-heading {
     min-width: 0;
     overflow-wrap: anywhere;
 }
 
-#action-buttons {
+.altmonitor-page #action-buttons {
     display: flex;
     flex: 0 1 auto;
     flex-wrap: wrap;
@@ -524,7 +550,7 @@ a.altmonitor-card:focus-visible {
     max-width: 100%;
 }
 
-#action-buttons > * {
+.altmonitor-page #action-buttons > * {
     max-width: 100%;
 }
 
@@ -590,6 +616,32 @@ a.altmonitor-card:focus-visible {
     margin: 0;
 }
 
+/* “This suggestion is in English…”: its own line under the text, also inside the flex box. */
+.altmonitor-translate {
+    flex-basis: 100%;
+    margin: 4px 0 0;
+    font-size: 12px;
+}
+
+.altmonitor-translate .btn {
+    margin-inline-start: 8px;
+}
+
+/* The language a Translate button sent someone to download, on the image model page. */
+.altmonitor-translations tr.altmonitor-wanted > * {
+    background: color-mix(in srgb, var(--link-color, #2563eb) 8%, var(--pane-bg, #fff));
+}
+
+.altmonitor-translations [data-translation-state="downloading"] {
+    display: grid;
+    gap: 4px;
+    min-width: 180px;
+}
+
+.altmonitor-translations [data-translation-state="downloading"][hidden] {
+    display: none;
+}
+
 .altmonitor-suggest.is-used {
     background: color-mix(in srgb, var(--success-color, #0d9f6e) 8%, var(--pane-bg, #fff));
     box-shadow: inset 3px 0 0 var(--success-color, #0d9f6e);
@@ -612,9 +664,11 @@ a.altmonitor-card:focus-visible {
     margin: 0;
 }
 
+/* The bulk bar sits under its list, and is pinned to the bottom of the screen (as Craft pins
+   an element index's actions) only while something is selected or typed, so it never covers
+   the list for nothing. */
 .altmonitor-bulk {
-    position: sticky;
-    bottom: 0;
+    position: relative;
     z-index: 2;
     display: flex;
     flex-wrap: wrap;
@@ -629,6 +683,90 @@ a.altmonitor-card:focus-visible {
 
 .altmonitor-bulk-count {
     margin-inline-end: auto;
+    color: var(--medium-text-color, #606d7b);
+}
+
+.altmonitor-bulk .btn[hidden],
+body.altmonitor-page .btn[hidden] {
+    display: none;
+}
+
+.altmonitor-bulk.is-pinned {
+    position: sticky;
+    bottom: 0;
+}
+
+.altmonitor-bulk-count[data-selected-count] {
+    font-variant-numeric: tabular-nums;
+}
+
+/* An empty list that offers the next step. */
+.altmonitor-empty form,
+.altmonitor-empty > .btn {
+    margin-top: 12px;
+}
+
+/* The widget on Craft's dashboard. */
+.altmonitor-widget-coverage {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 8px;
+    margin: 0;
+}
+
+.altmonitor-widget-coverage strong {
+    font-size: 24px;
+    line-height: 1.2;
+}
+
+.altmonitor-widget .altmonitor-progress {
+    margin: 8px 0 12px;
+}
+
+.altmonitor-widget-counts {
+    margin: 0 0 12px;
+    padding: 0;
+    list-style: none;
+}
+
+.altmonitor-widget-counts li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    border-top: 1px solid var(--hairline-color, rgba(51, 64, 77, 0.1));
+}
+
+.altmonitor-widget-counts li:last-child {
+    border-bottom: 1px solid var(--hairline-color, rgba(51, 64, 77, 0.1));
+}
+
+.altmonitor-widget-count {
+    margin-inline-start: auto;
+    font-variant-numeric: tabular-nums;
+}
+
+.altmonitor-widget p + p {
+    margin-top: 8px;
+}
+
+/* Hints for the alt text being typed, under its field. */
+.altmonitor-live {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    margin-top: 6px;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.altmonitor-live[hidden] {
+    display: none;
+}
+
+.altmonitor-live-issue {
     color: var(--medium-text-color, #606d7b);
 }
 
@@ -667,6 +805,40 @@ a.altmonitor-card:focus-visible {
 .altmonitor-review tr.is-leaving {
     opacity: 0;
     transition: opacity 0.3s;
+}
+
+/* The keyboard shortcuts, said once above the list. */
+.altmonitor-shortcuts {
+    margin: 0 0 8px;
+    font-size: 12px;
+    color: var(--medium-text-color, #606d7b);
+}
+
+.altmonitor-shortcuts kbd {
+    display: inline-block;
+    min-width: 1.6em;
+    padding: 0 4px;
+    border: 1px solid var(--hairline-color, rgba(51, 64, 77, 0.1));
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    background: var(--white, #fff);
+    font: inherit;
+    line-height: 1.5;
+    text-align: center;
+    color: var(--text-color, #3f4d5a);
+}
+
+/* The next suggestions loading in place. */
+[data-altmonitor-review].is-loading {
+    opacity: 0.5;
+    pointer-events: none;
+    transition: opacity 0.2s;
+}
+
+@media (hover: none) {
+    .altmonitor-shortcuts {
+        display: none;
+    }
 }
 
 /* One image */
@@ -713,6 +885,13 @@ a.altmonitor-card:focus-visible {
 
 .altmonitor-settings > .field:last-child {
     grid-column: 1 / -1;
+}
+
+/* Text between fields spans both columns, at a readable width. */
+.altmonitor-settings > .altmonitor-settings-text {
+    grid-column: 1 / -1;
+    max-width: 75ch;
+    margin: 0 0 16px;
 }
 
 .altmonitor-settings > h2 {
@@ -941,7 +1120,6 @@ a.altmonitor-card:focus-visible {
     }
 
     #altmonitor-images .altmonitor-alt-cell,
-    #altmonitor-images .altmonitor-row-actions,
     #altmonitor-suggestions tr > td:nth-last-child(-n+2) {
         grid-column: 1 / -1;
         justify-self: stretch;
@@ -976,9 +1154,87 @@ a.altmonitor-card:focus-visible {
     }
 
     
+}
 
-    .altmonitor-bulk {
-        position: static;
+/* ---------- The box in Craft's asset editor sidebar ----------
+   Craft's own sidebar look: a fieldset with an h6 legend over a grey .meta pane. */
+.altmonitor-sidebar {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+}
+
+.details .meta.altmonitor-sidebar-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-block: 12px;
+}
+
+.altmonitor-sidebar-body p {
+    margin: 0;
+}
+
+.altmonitor-sidebar-status {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+}
+
+.altmonitor-sidebar-hint {
+    color: var(--medium-text-color, #606d7b);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.altmonitor-sidebar-hint.is-done {
+    color: var(--success-color, #0f766e);
+}
+
+.altmonitor-sidebar-suggestion {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    border: 1px solid var(--hairline-color, rgba(51, 64, 77, 0.1));
+    border-radius: var(--large-border-radius, 5px);
+    background: var(--white, #fff);
+}
+
+.altmonitor-sidebar-text {
+    overflow-wrap: anywhere;
+}
+
+.altmonitor-sidebar-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+}
+
+.altmonitor-sidebar-actions .btn[hidden] {
+    display: none;
+}
+
+/* The editor's Alt Text field, just filled by “Use”. */
+.altmonitor-filled {
+    animation: altmonitor-filled 1.6s ease-out;
+}
+
+@keyframes altmonitor-filled {
+    from {
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--enabled-color, #11a697) 45%, transparent);
+    }
+    to {
+        box-shadow: 0 0 0 3px transparent;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .altmonitor-filled {
+        animation: none;
     }
 }
 
@@ -1000,6 +1256,7 @@ a.altmonitor-card:focus-visible {
 }
 
 /* Cards */
+.altmonitor-rule,
 .altmonitor-step,
 .altmonitor-panel,
 .altmonitor-state,
@@ -1108,6 +1365,13 @@ a.altmonitor-card:focus-visible {
     background: var(--am-soft-bg);
 }
 
+/* Pinned, it stands out from the rows passing under it. */
+.altmonitor-bulk.is-pinned {
+    border-color: var(--am-border-color);
+    background: var(--am-card-bg);
+    box-shadow: 0 -4px 16px rgba(31, 41, 51, 0.12), 0 0 0 1px var(--hairline-color, rgba(51, 64, 77, 0.1));
+}
+
 .altmonitor-suggest {
     border-radius: var(--am-radius);
 }
@@ -1181,7 +1445,63 @@ a.altmonitor-card:focus-visible {
     margin-bottom: var(--am-space-3);
 }
 
+/* Full-width parts of a settings tab: the rules, the generic words and their list. */
+.altmonitor-settings > .altmonitor-wide,
+.altmonitor-settings > .altmonitor-rules,
+.altmonitor-settings > .altmonitor-generic-words {
+    grid-column: 1 / -1;
+}
+
+/* How images are checked: one card per status, two per row. */
+.altmonitor-rules {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--am-space-2);
+    margin-bottom: var(--am-space-2);
+}
+
+.altmonitor-rule {
+    margin: 0;
+}
+
+.altmonitor-rule ul {
+    margin: var(--am-space-1) 0 0;
+    padding-inline-start: 18px;
+    list-style: disc;
+}
+
+.altmonitor-rule li + li {
+    margin-top: 4px;
+}
+
+.altmonitor-generic-words {
+    margin-bottom: var(--am-space-3);
+}
+
+.altmonitor-generic-words summary {
+    cursor: pointer;
+    color: var(--link-color, #2563eb);
+}
+
+.altmonitor-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: var(--am-space-1) 0 0;
+}
+
+.altmonitor-chips code {
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--am-soft-bg);
+    font-size: 12px;
+}
+
 @media (max-width: 767px) {
+    .altmonitor-rules {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
     .altmonitor-step,
     .altmonitor-panel,
     .altmonitor-state,
@@ -1342,6 +1662,15 @@ a.altmonitor-card:focus-visible {
 
 .altmonitor-dialog-status {
     margin: var(--am-space-1) 0 0;
+}
+
+.altmonitor-dialog-eta {
+    margin: 2px 0 0;
+    font-size: 12px;
+}
+
+.altmonitor-dialog-eta[hidden] {
+    display: none;
 }
 
 .altmonitor-dialog-foot {

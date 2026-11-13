@@ -18,8 +18,8 @@ enum UsageKind: string
     public function label(): string
     {
         return match ($this) {
-            self::RELATION => Craft::t('alt-monitor', 'Related through a field'),
-            self::REFERENCE_TAG => Craft::t('alt-monitor', 'Embedded in field content'),
+            self::RELATION => Craft::t('alt-monitor', 'In an Assets field'),
+            self::REFERENCE_TAG => Craft::t('alt-monitor', 'Embedded in text'),
         };
     }
 }

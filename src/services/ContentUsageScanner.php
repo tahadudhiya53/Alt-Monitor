@@ -173,7 +173,7 @@ class ContentUsageScanner extends Component
 
             // The reference is reported, but not what the user may not see.
             if ($user !== null && !Craft::$app->getElements()->canView($root, $user)) {
-                $references[] = new UsageReference(UsageKind::from($row['kind']), Craft::t('alt-monitor', 'Content you may not view'), $root::displayName(), null, null, null, null);
+                $references[] = new UsageReference(UsageKind::from($row['kind']), Craft::t('alt-monitor', 'Content you can’t see'), $root::displayName(), null, null, null, null);
                 continue;
             }
 

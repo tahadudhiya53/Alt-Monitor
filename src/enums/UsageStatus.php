@@ -23,8 +23,8 @@ enum UsageStatus: string
     {
         return match ($this) {
             self::USED => Craft::t('alt-monitor', 'Used'),
-            self::UNUSED => Craft::t('alt-monitor', 'No references found'),
-            self::UNKNOWN => Craft::t('alt-monitor', 'Not scanned'),
+            self::UNUSED => Craft::t('alt-monitor', 'Not found in content'),
+            self::UNKNOWN => Craft::t('alt-monitor', 'Not checked'),
         };
     }
 }

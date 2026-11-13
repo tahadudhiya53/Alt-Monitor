@@ -81,7 +81,7 @@ class OllamaProvider implements AiProviderInterface
         }
 
         if (is_array($capabilities) && !in_array('vision', $capabilities, true)) {
-            return new AiStatus(true, false, Craft::t('alt-monitor', 'The model “{model}” is installed but does not accept images. Choose a vision model.', ['model' => $this->model]), $models);
+            return new AiStatus(true, false, Craft::t('alt-monitor', '“{model}” is installed but can’t read images. Choose a vision model.', ['model' => $this->model]), $models);
         }
 
         return new AiStatus(true, true, Craft::t('alt-monitor', 'Ollama is running and “{model}” is installed.', ['model' => $this->model]), $models);
@@ -113,7 +113,7 @@ class OllamaProvider implements AiProviderInterface
         $answer = self::json($response)['response'] ?? null;
 
         if (!is_string($answer)) {
-            throw new AiProviderException(Craft::t('alt-monitor', 'Ollama’s answer was not in the expected format.'));
+            throw new AiProviderException(Craft::t('alt-monitor', 'Ollama’s answer wasn’t in the expected format.'));
         }
 
         return $answer;
@@ -148,7 +148,7 @@ class OllamaProvider implements AiProviderInterface
         } catch (ConnectException $exception) {
             Craft::warning(sprintf('Ollama could not be reached: %s', $exception->getHandlerContext()['error'] ?? 'connection failed'), __METHOD__);
 
-            throw new AiProviderException(Craft::t('alt-monitor', 'Ollama could not be reached at {endpoint}. Check that it is running.', ['endpoint' => $this->endpoint]), true, $exception);
+            throw new AiProviderException(Craft::t('alt-monitor', 'Can’t reach Ollama at {endpoint}. Check that it’s running.', ['endpoint' => $this->endpoint]), true, $exception);
         } catch (GuzzleException $exception) {
             Craft::warning(sprintf('The request to Ollama failed: %s', get_class($exception)), __METHOD__);
 
@@ -184,7 +184,7 @@ class OllamaProvider implements AiProviderInterface
         try {
             $data = json_decode((string)$response->getBody(), true, 32, JSON_THROW_ON_ERROR);
         } catch (\JsonException $exception) {
-            throw new AiProviderException(Craft::t('alt-monitor', 'Ollama’s answer was not in the expected format.'), false, $exception);
+            throw new AiProviderException(Craft::t('alt-monitor', 'Ollama’s answer wasn’t in the expected format.'), false, $exception);
         }
 
         return is_array($data) ? $data : [];

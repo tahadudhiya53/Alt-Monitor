@@ -40,6 +40,6 @@ class ScanController extends Controller
             return $this->asFailure($exception->getMessage());
         }
 
-        return $this->asSuccess(Craft::t('alt-monitor', '{type} queued. Images stay available meanwhile.', ['type' => $scan->type->label()]), ['scan' => $scan->toArray()], 'alt-monitor');
+        return $this->asSuccess(Craft::t('alt-monitor', '{type} queued. You can keep working meanwhile.', ['type' => $scan->type->label()]), ['scan' => $scan->toArray()], 'alt-monitor');
     }
 }

@@ -52,7 +52,7 @@ abstract class BaseScanJob extends BaseJob implements RetryableJobInterface
             $next = $this->run($queue, $scan);
         } catch (\Throwable $exception) {
             Craft::error(sprintf('AltMonitor scan %d failed: %s', $this->scanId, $exception->getMessage()), __METHOD__);
-            $scans->fail($this->scanId, Craft::t('alt-monitor', 'The scan stopped because of an error. The Craft logs have the details.'));
+            $scans->fail($this->scanId, Craft::t('alt-monitor', 'The scan stopped because of an error. See the Craft logs for details.'));
 
             throw $exception;
         } finally {

@@ -1,11 +1,17 @@
 {% extends '_layouts/cp' %}
 
 {% set title = 'Images'|t('alt-monitor') %}
+{% set bodyClass = 'altmonitor-page' %}
 {% set selectedSubnavItem = 'images' %}
 {% do view.registerAssetBundle('Tahadudhiya\\AltMonitor\\web\\assets\\cp\\CpAsset') %}
 {% do view.registerTranslations('alt-monitor', [
     '{count, number} selected',
-    'Suggestion approved and saved to the image.',
+    'Save changes ({count, number})',
+    'Alt text saved for {count, number} {count, plural, =1{image} other{images}}.',
+    '{failed, number} {failed, plural, =1{image} other{images}} could not be updated.',
+    'Approved and saved to the image.',
+    'The alt text could not be saved.',
+    'As typed:',
     'The suggestion could not be approved.',
 ]) %}
 
@@ -93,15 +99,26 @@
     {% if page.items is empty and page.total > 0 %}
         {{ macros.pastEnd(page, criteria, 'alt-monitor/images') }}
     {% elseif page.items is empty %}
-        <div class="zilch" id="altmonitor-no-images">
-            <p>
-                {{ criteria.isFiltered()
-                    ? 'No images match these filters.'|t('alt-monitor')
-                    : 'No images have been scanned yet. Run a scan from the dashboard.'|t('alt-monitor') }}
-            </p>
+        <div class="zilch altmonitor-empty" id="altmonitor-no-images">
+            {% if criteria.isFiltered() %}
+                <p>{{ 'No images match these filters.'|t('alt-monitor') }}</p>
+            {% elseif activeScan %}
+                {# Already on its way: where to watch it, not a second scan. #}
+                <p>{{ 'Scanning. Images appear here as they are checked.'|t('alt-monitor') }}</p>
+                <a class="btn" href="{{ url('alt-monitor') }}">{{ 'See progress'|t('alt-monitor') }}</a>
+            {% elseif canScan %}
+                <p>{{ 'No images checked yet. A scan reads each image’s alt text and changes nothing.'|t('alt-monitor') }}</p>
+                <form method="post">
+                    {{ csrfInput() }}
+                    {{ actionInput('alt-monitor/scan/start') }}
+                    <button type="submit" class="btn submit" name="type" value="full">{{ 'Scan all images'|t('alt-monitor') }}</button>
+                </form>
+            {% else %}
+                <p>{{ 'No images checked yet. Someone who can run scans can start one from the AltMonitor dashboard.'|t('alt-monitor') }}</p>
+            {% endif %}
         </div>
     {% else %}
-        <form method="post" id="altmonitor-images-form" data-altmonitor-selection>
+        <form method="post" id="altmonitor-images-form" data-altmonitor-selection data-altmonitor-unsaved>
             {{ csrfInput() }}
             {{ actionInput('alt-monitor/assets/bulk') }}
             {{ redirectInput(url('alt-monitor/images', criteria.params())) }}
@@ -116,7 +133,6 @@
                                 {% endif %}
                                 <th scope="col" colspan="2">{{ 'Image'|t('alt-monitor') }}</th>
                                 <th scope="col">{{ 'Alt text'|t('alt-monitor') }}</th>
-                                <th scope="col"><span class="visually-hidden">{{ 'Actions'|t('alt-monitor') }}</span></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -126,7 +142,7 @@
                                 {% set editable = canEditAlt and item.canEdit %}
                                 {% set suggestion = item.suggestion %}
                                 {% set usable = item.hasNewSuggestion() and canApprove and item.canEdit %}
-                                <tr data-key="{{ key }}">
+                                <tr data-key="{{ key }}" data-altmonitor-refresh="row-{{ key }}">
                                     {% if canAct %}
                                         <td class="checkbox-cell">
                                             <input type="checkbox" name="selected[]" value="{{ key }}" data-select
@@ -155,9 +171,14 @@
                                             {% if item.status.value != 'missing' %}{% for issue in item.issues %}<span class="smalltext light">{{ issue.label() }}</span>{% endfor %}{% endif %}
                                         </div>
                                         {% if editable %}
-                                            <input type="text" class="text fullwidth" name="alt[{{ key }}]" value="{{ asset.alt }}" maxlength="1000"
-                                                   placeholder="{{ 'Describe the image…'|t('alt-monitor') }}"
+                                            {# A text box drops line breaks (Craft's Alt Text field allows them): they are dropped here
+                                             # too, so the box and its original match and an untouched row isn't seen as changed. #}
+                                            {% set shownAlt = (asset.alt ?? '')|replace({"\r\n": ' ', "\r": ' ', "\n": ' '}) %}
+                                            <input type="text" class="text fullwidth" name="alt[{{ key }}]" value="{{ shownAlt }}" maxlength="1000" data-altmonitor-check="{{ key }}"
+                                                   placeholder="{{ 'What does the image show?'|t('alt-monitor') }}"
                                                    aria-label="{{ 'Alt text for {name}'|t('alt-monitor', {name: asset.filename}) }}">
+                                            {# What the field started with: only rows whose text differs are saved. #}
+                                            {{ hiddenInput('original[' ~ key ~ ']', shownAlt) }}
                                         {% elseif asset.alt %}
                                             <div>{{ asset.alt }}</div>
                                         {% else %}
@@ -170,14 +191,10 @@
                                                 {% if usable %}
                                                     <button type="button" class="btn small" data-use-suggestion="{{ suggestion.id }}" data-text="{{ suggestion.suggestedAlt }}">{{ 'Use'|t('alt-monitor') }}</button>
                                                 {% endif %}
+                                                {{ macros.translationNote(suggestion, translator ?? null) }}
                                             </div>
                                         {% elseif suggestion and suggestion.status.value not in ['pending', 'approved'] %}
                                             <div class="smalltext light">{{ macros.suggestionStatus(suggestion) }} {{ suggestion.source.label() }}</div>
-                                        {% endif %}
-                                    </td>
-                                    <td class="altmonitor-row-actions">
-                                        {% if editable %}
-                                            <button type="submit" class="btn small" name="save" value="{{ key }}">{{ 'Save'|t('alt-monitor') }}</button>
                                         {% endif %}
                                     </td>
                                 </tr>
@@ -189,18 +206,19 @@
 
             {% if canAct %}
                 <div class="altmonitor-bulk" id="altmonitor-bulk-actions">
-                    <span class="altmonitor-bulk-count" data-selected-count>{{ 'Select images to act on several at once.'|t('alt-monitor') }}</span>
+                    <span class="altmonitor-bulk-count" data-selected-count>{{ 'Select images to change several at once.'|t('alt-monitor') }}</span>
+                    {% if canEditAlt %}<button type="submit" class="btn submit" name="intent" value="save" data-save-changed>{{ 'Save changes'|t('alt-monitor') }}</button>{% endif %}
                     {% if describer %}
                         <button type="button" class="btn" data-describe-selected data-needs-selection>{{ 'Describe images'|t('alt-monitor') }}</button>
                     {% elseif canGenerate %}
-                        <button type="submit" class="btn" name="intent" value="generate" data-needs-selection>{{ 'Generate suggestions'|t('alt-monitor') }}</button>
+                        <button type="submit" class="btn" name="intent" value="generate" data-needs-selection>{{ 'Get suggestions'|t('alt-monitor') }}</button>
                     {% endif %}
                     {% if canApprove %}<button type="submit" class="btn" name="intent" value="approve" data-needs-selection>{{ 'Approve suggestions'|t('alt-monitor') }}</button>{% endif %}
-                    {% if canEditAlt %}<button type="submit" class="btn" name="intent" value="save" data-needs-selection>{{ 'Save alt text'|t('alt-monitor') }}</button>{% endif %}
+                    {% if canEditAlt %}<button type="submit" class="btn" name="intent" value="decorative" data-needs-selection>{{ 'Mark as decorative'|t('alt-monitor') }}</button>{% endif %}
                 </div>
             {% endif %}
         </form>
-        {% if describer %}{% include 'alt-monitor/_describer' %}{% endif %}
+        {% if translator %}{% include 'alt-monitor/_describer' with {describer: translator} %}{% endif %}
 
         {{ macros.pagination(page, criteria, 'alt-monitor/images', 'images'|t('alt-monitor')) }}
     {% endif %}
