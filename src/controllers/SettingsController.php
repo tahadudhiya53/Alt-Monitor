@@ -4,8 +4,11 @@ namespace Tahadudhiya\AltMonitor\controllers;
 
 use Craft;
 use craft\web\Controller;
+use Tahadudhiya\AltMonitor\ai\Translations;
 use Tahadudhiya\AltMonitor\AltMonitor;
+use Tahadudhiya\AltMonitor\enums\AltStatus;
 use Tahadudhiya\AltMonitor\models\Settings;
+use Tahadudhiya\AltMonitor\services\AltTextAnalyzer;
 use yii\web\BadRequestHttpException;
 use yii\web\ForbiddenHttpException;
 use yii\web\Response;
@@ -22,7 +25,7 @@ class SettingsController extends Controller
     use RequestInput;
 
     /** The settings this page may change. */
-    private const EDITABLE = ['scanBatchSize', 'auditOnSave', 'scanUsageAfterFullScan', 'additionalGenericTerms'];
+    private const EDITABLE = ['scanBatchSize', 'auditOnSave', 'scanUsageAfterFullScan', 'additionalGenericTerms', 'siteLanguages'];
 
     public function beforeAction($action): bool
     {
@@ -40,8 +43,13 @@ class SettingsController extends Controller
     {
         $plugin = AltMonitor::getInstance();
 
+        $settings ??= $plugin->getSettings();
+
         return $this->renderTemplate('alt-monitor/settings/_index', [
-            'settings' => $settings ?? $plugin->getSettings(),
+            'settings' => $settings,
+            'siteLanguages' => self::siteLanguages($settings),
+            'rules' => self::rules(),
+            'genericTerms' => AltTextAnalyzer::GENERIC_TERMS,
             'browser' => $plugin->getAiProviders()->browserConfig(),
             'readOnly' => !Craft::$app->getConfig()->getGeneral()->allowAdminChanges,
             'overrides' => array_keys(Craft::$app->getConfig()->getConfigFromFile('alt-monitor')),
@@ -58,9 +66,20 @@ class SettingsController extends Controller
 
         $plugin = AltMonitor::getInstance();
         $values = $this->posted();
+        $wordsBefore = $plugin->getSettings()->additionalGenericTerms;
 
         if (!Craft::$app->getPlugins()->savePluginSettings($plugin, $values)) {
-            return $this->asModelFailure($plugin->getSettings(), Craft::t('alt-monitor', 'Couldn’t save the settings.'), 'settings');
+            // Errors in settings only the config file sets have no field on this page: say so.
+            $fileErrors = array_merge(...array_values(array_diff_key($plugin->getSettings()->getErrors(), array_flip(self::EDITABLE))));
+
+            return $this->asModelFailure($plugin->getSettings(), $fileErrors !== []
+                ? Craft::t('alt-monitor', 'Couldn’t save the settings: config/alt-monitor.php has a value that isn’t valid. {errors}', ['errors' => implode(' ', $fileErrors)])
+                : Craft::t('alt-monitor', 'Couldn’t save the settings.'), 'settings');
+        }
+
+        // New generic words only judge existing images again when a full scan reads them.
+        if ($plugin->getSettings()->additionalGenericTerms !== $wordsBefore) {
+            return $this->asSuccess(Craft::t('alt-monitor', 'Settings saved. Run a full scan to re-check images with the new generic words.'));
         }
 
         return $this->asSuccess(Craft::t('alt-monitor', 'Settings saved.'));
@@ -89,9 +108,82 @@ class SettingsController extends Controller
         return $this->asJson([
             'reachable' => $status->reachable ?? false,
             'modelAvailable' => $status->modelAvailable ?? false,
-            'message' => $status->message ?? Craft::t('alt-monitor', 'No AI provider is available.'),
+            'message' => $status->message ?? Craft::t('alt-monitor', 'No AI is set up.'),
             'models' => $status->models ?? [],
         ]);
+    }
+
+    /**
+     * How a scan gives each image its status, in words, for the Rules section. The limits come
+     * from {@see AltTextAnalyzer}, so the page says what the checks do.
+     *
+     * @return list<array{status: AltStatus, reasons: list<string>}>
+     */
+    private static function rules(): array
+    {
+        return [
+            ['status' => AltStatus::MISSING, 'reasons' => [
+                Craft::t('alt-monitor', 'No alt text, and the image isn’t marked as decorative.'),
+            ]],
+            ['status' => AltStatus::WEAK, 'reasons' => [
+                Craft::t('alt-monitor', 'It’s the file name or has a file extension, like “team-photo.jpg”.'),
+                Craft::t('alt-monitor', 'It’s a code or mostly numbers, like “IMG 1234” or “DSC_0042”.'),
+                Craft::t('alt-monitor', 'It’s only a generic word, like “image” or “logo” (see the list below).'),
+                Craft::t('alt-monitor', 'It repeats the same words over and over.'),
+            ]],
+            ['status' => AltStatus::REVIEW, 'reasons' => [
+                Craft::t('alt-monitor', 'It starts with “image of”, “picture of” or “photo of”.'),
+                Craft::t('alt-monitor', 'It’s shorter than 3 characters or longer than {max, number}.', ['max' => AltTextAnalyzer::LONG_TEXT]),
+                Craft::t('alt-monitor', 'No alt text, but the file name looks decorative, like “divider” or “background”.'),
+            ]],
+            ['status' => AltStatus::GOOD, 'reasons' => [
+                Craft::t('alt-monitor', 'None of the above.'),
+                Craft::t('alt-monitor', 'Or marked as decorative: screen readers skip it.'),
+            ]],
+        ];
+    }
+
+    /**
+     * Per site: its language, the suggestion language chosen for it, the choices, and what that
+     * means for its suggestions.
+     *
+     * @return list<array{uid: string, name: string, language: string, value: string, options: list<array{label: string, value: string}>, effect: string}>
+     */
+    private static function siteLanguages(Settings $settings): array
+    {
+        $rows = [];
+
+        foreach (Craft::$app->getSites()->getAllSites(true) as $site) {
+            $own = Translations::primary($site->language);
+            $ownName = Translations::languageName($own);
+            $options = [['label' => Craft::t('alt-monitor', 'Same as the site ({language})', ['language' => $ownName]), 'value' => '']];
+            $others = [];
+
+            foreach (Translations::choices() as $language) {
+                if ($language !== $own) {
+                    $others[] = ['label' => Translations::languageName($language), 'value' => $language];
+                }
+            }
+
+            usort($others, static fn(array $a, array $b): int => strcmp($a['label'], $b['label']));
+            $value = $settings->siteLanguages[$site->uid] ?? '';
+            // What describing and translating will use (after a failed save, what was posted).
+            $language = Translations::languageFor($site);
+            $rows[] = [
+                'uid' => (string)$site->uid,
+                'name' => $site->getName(),
+                'language' => $ownName,
+                'value' => $value,
+                'options' => [...$options, ...$others],
+                'effect' => match (true) {
+                    Translations::isEnglish($language) => Craft::t('alt-monitor', 'Written in English.'),
+                    Translations::forLanguage($language) !== null => Craft::t('alt-monitor', 'Written in English, then translated into {language} in the browser.', ['language' => Translations::languageName(Translations::primary($language))]),
+                    default => Craft::t('alt-monitor', 'Stays in English and is marked: there’s no translation model for {language}.', ['language' => Translations::languageName($language)]),
+                },
+            ];
+        }
+
+        return $rows;
     }
 
     /**
@@ -107,7 +199,9 @@ class SettingsController extends Controller
             throw new BadRequestHttpException('Settings must be sent as a set of values.');
         }
 
-        $values = array_intersect_key($posted, array_flip(self::EDITABLE));
+        // Settings the config file sets can't be changed here: whatever is posted for them is
+        // left out, so nothing is saved that wouldn't take effect.
+        $values = array_diff_key(array_intersect_key($posted, array_flip(self::EDITABLE)), Craft::$app->getConfig()->getConfigFromFile('alt-monitor'));
 
         // Form values arrive as text; the settings' properties are typed. A value that isn't a
         // number becomes 0, which validation then refuses with a message.
@@ -119,6 +213,10 @@ class SettingsController extends Controller
             if (array_key_exists($name, $values)) {
                 $values[$name] = (bool)$values[$name];
             }
+        }
+
+        if (array_key_exists('siteLanguages', $values)) {
+            $values['siteLanguages'] = Settings::normalizeSiteLanguages($values['siteLanguages']);
         }
 
         if (array_key_exists('additionalGenericTerms', $values)) {
