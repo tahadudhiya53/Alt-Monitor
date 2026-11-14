@@ -15,6 +15,8 @@ that runs in your browser. Nothing is saved until a person approves it.
 - **Review in one place.** Approve, edit or reject suggestions, one by one or many at once.
 - **Shows where images are used** in entries, Matrix and other nested content, global sets and
   rich text.
+- **Catches problems while people edit.** A box in the entry editor lists the entry's images with
+  missing or weak alt text, and a setting can stop entries being published until they have it.
 - **Works in Craft's own screens.** A box in the asset editor, a column and a filter in the
   Assets index, and a dashboard widget.
 
@@ -60,6 +62,11 @@ In Craft's own screens:
 
 - **Asset editor:** an **Alt text check** box in the sidebar shows the status and the suggestion.
   **Use** puts the suggestion in the Alt Text field; save the asset to keep it.
+- **Entry editor:** an **Image alt text** box in the sidebar says how many of the entry's images
+  have missing or weak alt text and lists them, with **Describe**, **Use** for a suggestion (it
+  saves the alt text to the image right away) and **Edit image** (the asset in a slide-out). It
+  covers Assets fields, Matrix and other nested entries, and images in rich text, as the entry is
+  being edited, and updates after each autosave. Images marked decorative don't count.
 - **Assets index:** an **Alt text status** column, and a filter by status.
 - **Dashboard widget:** **Alt text coverage**.
 
@@ -142,8 +149,14 @@ be changed where admin changes are allowed.
 | Scanning & rules | Check images when they are saved | On |
 | Scanning & rules | Find where images are used after a full scan | On |
 | Scanning & rules | Images per scan job | 100 |
+| Scanning & rules | Don’t publish entries with images missing alt text | Off |
 | Scanning & rules | Extra generic words: alt text that is only one of them (also with “a”, “the” or a number) counts as weak | None |
 | Languages | Suggestion language per site | The site's language |
+
+With **Don’t publish entries with images missing alt text** on, saving an enabled entry in the
+control panel stops with an error at each field holding an image with no alt text, naming the
+images. Weak alt text doesn't stop it, and decorative images are fine. Drafts, disabled entries,
+imports and console commands are never stopped.
 
 After changing the extra generic words, run a full scan: it re-checks every image with the new
 list. The words also apply right away to hints while typing, and an AI description that is only
@@ -159,6 +172,7 @@ Everything can also be set in `config/alt-monitor.php`, which overrides the cont
 | `siteLanguages` | `[]` | Suggestion language by site UID, e.g. `['<site-uid>' => 'en']` |
 | `scanBatchSize` | `100` | Images per scan job (10–1000) |
 | `auditOnSave` | `true` | Check images when they are saved |
+| `requireAltToPublish` | `false` | Don't publish entries while an image in them has no alt text |
 | `scanUsageAfterFullScan` | `true` | Run a usage scan after a full scan |
 | `additionalGenericTerms` | `[]` | Extra generic words |
 | `browserModel` | `onnx-community/Florence-2-base-ft` | Config file only. The image model |

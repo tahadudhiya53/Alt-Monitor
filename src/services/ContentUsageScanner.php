@@ -34,7 +34,7 @@ use yii\db\Expression;
 class ContentUsageScanner extends Component
 {
     /** Matches the asset ID in a reference tag: `{asset:123}`, `{asset:123:url}`, `{asset:123@1:url||…}`. */
-    private const REFERENCE_TAG = '/\{asset:(\d+)(?=[:@}|])/';
+    public const REFERENCE_TAG = '/\{asset:(\d+)(?=[:@}|])/';
 
     /**
      * Records one batch of relations to image assets.

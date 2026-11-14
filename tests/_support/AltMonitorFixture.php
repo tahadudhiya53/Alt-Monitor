@@ -161,7 +161,7 @@ trait AltMonitorFixture
         Event::off(Queue::class, Queue::EVENT_AFTER_PUSH, [$this, 'catchJob']);
         $this->restoreConsoleRequest();
         Craft::$app->getUser()->setIdentity(null);
-        AltMonitor::getInstance()->getSettings()->setAttributes(['aiEnabled' => false, 'fallbackToRules' => false, 'auditOnSave' => true, 'scanUsageAfterFullScan' => true, 'suggestAfterScan' => false, 'siteLanguages' => [], 'additionalGenericTerms' => []], false);
+        AltMonitor::getInstance()->getSettings()->setAttributes(['aiEnabled' => false, 'fallbackToRules' => false, 'auditOnSave' => true, 'scanUsageAfterFullScan' => true, 'suggestAfterScan' => false, 'requireAltToPublish' => false, 'siteLanguages' => [], 'additionalGenericTerms' => []], false);
 
         if ($this->savepoint?->getIsActive()) {
             $this->savepoint->rollBack();
@@ -419,6 +419,18 @@ trait AltMonitorFixture
         $response = $controller->runAction($action, $method === 'GET' ? $params : []);
 
         return $response instanceof Response ? $response : null;
+    }
+
+    /** Back to the console request tests otherwise run in. */
+    protected function tearDownRequest(): void
+    {
+        $this->restoreConsoleRequest();
+    }
+
+    /** Makes what follows run as a control panel request (an entry being saved in its editor). */
+    protected function asCpRequest(): void
+    {
+        $this->useWebRequest('POST', '/admin/actions/elements/save', []);
     }
 
     /**
