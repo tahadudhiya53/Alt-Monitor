@@ -11,6 +11,7 @@ use PHPUnit\Framework\TestCase;
 use Tahadudhiya\AltMonitor\AltMonitor;
 use Tahadudhiya\AltMonitor\controllers\AssetsController;
 use Tahadudhiya\AltMonitor\controllers\DashboardController;
+use Tahadudhiya\AltMonitor\controllers\EntriesController;
 use Tahadudhiya\AltMonitor\controllers\ModelController;
 use Tahadudhiya\AltMonitor\controllers\ScanController;
 use Tahadudhiya\AltMonitor\controllers\SettingsController;
@@ -539,5 +540,36 @@ class ControllerSecurityTest extends TestCase
 
         $this->expectException(\Tahadudhiya\AltMonitor\errors\AltTextException::class);
         AltMonitor::getInstance()->getAltTextEditor()->save((int)$perSite->id, self::$primarySiteId, 'Not allowed', $user);
+    }
+    public function testTheEntryEditorBoxNeedsTheViewPermissionAndTheEntry(): void
+    {
+        $image = self::savedImage('hidden-hero.jpg');
+        $entry = self::savedEntry('Entry with an image', [self::IMAGES => [$image->id]]);
+        $check = AltMonitor::getInstance()->getEntryCheck();
+        $params = ['elementId' => (string)$entry->id, 'siteId' => (string)self::$primarySiteId];
+
+        $this->signIn(false, ['accessCp', ...self::assetPermissions()]);
+        self::assertSame('', $check->sidebarHtml($entry));
+
+        try {
+            $this->runAction(EntriesController::class, 'entries', 'sidebar', $params, method: 'GET');
+            self::fail('The entry box was served without the view permission.');
+        } catch (ForbiddenHttpException) {
+        }
+
+        // Viewing AltMonitor doesn't reach entries the user may not view.
+        $this->signIn(false, [...self::VIEW, ...self::assetPermissions()]);
+
+        try {
+            $this->runAction(EntriesController::class, 'entries', 'sidebar', $params, method: 'GET');
+            self::fail('The entry box was served for an entry the user may not view.');
+        } catch (\yii\web\NotFoundHttpException) {
+        }
+
+        // Images the user may not view are counted, not shown.
+        $this->signIn(false, self::VIEW);
+        $html = $check->sidebarHtml($entry);
+        self::assertStringNotContainsString('hidden-hero.jpg', $html);
+        self::assertStringContainsString('This entry has 1 more image you can’t see.', $html);
     }
 }

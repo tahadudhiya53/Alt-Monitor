@@ -1,0 +1,117 @@
+{#
+ # AltMonitor's box in Craft's entry editor sidebar (a page or a slide-out): the entry's images
+ # with missing or weak alt text, each with Describe, Use for a suggestion, and Edit image (the
+ # asset in a slide-out). Rendered by EntryCheck::sidebarHtml(); cp.js `entryBox()` fetches it
+ # again after each autosave. Every button is type="button": the box sits inside the editor's
+ # form and must never submit it. “Use” saves the suggestion to the image itself (an image's alt
+ # text belongs to the asset, not to the entry).
+ #}
+{% import 'alt-monitor/_macros' as macros %}
+{% do view.registerTranslations('alt-monitor', [
+    'The suggestion could not be approved.',
+    'The suggestion could not be rejected.',
+    'Making a new suggestion. It shows here when it’s ready.',
+    'The suggestion could not be generated.',
+]) %}
+{% set missing = attention|filter(image => image.status.value == 'missing' and not image.decorative)|length %}
+{% set describable = attention|filter(image => image.hasProblem())|length %}
+<fieldset class="altmonitor-sidebar altmonitor-entry" data-altmonitor-entry
+          data-key="{{ boxKey }}" data-element-id="{{ element.id }}" data-site-id="{{ element.siteId }}"
+          data-signature="{{ signature }}"
+          {% if editUrl %}data-edit-url="{{ editUrl }}"{% endif %}>
+    <legend class="h6">{{ 'Image alt text'|t('alt-monitor') }}</legend>
+    <div class="meta altmonitor-sidebar-body">
+        {% if images is empty and hidden == 0 %}
+            <p class="altmonitor-sidebar-hint">{{ 'No images in this entry yet. Images added to it are checked here.'|t('alt-monitor') }}</p>
+        {% else %}
+            {% if problems %}
+                <p class="altmonitor-entry-summary is-problem">
+                    {{ '{count, plural, =1{1 image in this entry has} other{# images in this entry have}} missing or weak alt text.'|t('alt-monitor', {count: problems}) }}
+                </p>
+                {% if requireAltToPublish and missing %}
+                    <p class="altmonitor-sidebar-hint">{{ 'The entry can’t be published until images missing alt text have it, or are marked decorative.'|t('alt-monitor') }}</p>
+                {% endif %}
+            {% elseif images is not empty %}
+                <p class="altmonitor-entry-summary is-good">
+                    {{ '{count, plural, =1{The image in this entry has} other{All # images in this entry have}} alt text.'|t('alt-monitor', {count: images|length}) }}
+                </p>
+            {% endif %}
+
+            {% if describer and describable > 1 %}
+                <div class="altmonitor-sidebar-actions">
+                    <button type="button" class="btn small" data-entry-describe-all>
+                        {{ 'Describe all {count, number}'|t('alt-monitor', {count: describable}) }}
+                    </button>
+                </div>
+            {% endif %}
+
+            {% if attention is not empty %}
+                <ul class="altmonitor-entry-images">
+                    {% for image in attention %}
+                        {% set asset = image.asset %}
+                        {% set suggestion = image.hasNewSuggestion() ? image.suggestion : null %}
+                        <li class="altmonitor-entry-image" data-entry-image="{{ image.key() }}"
+                            data-asset-id="{{ asset.id }}" data-asset-site-id="{{ asset.siteId }}" data-audit-site-id="{{ image.auditSiteId }}"
+                            {% if image.hasProblem() %}data-problem{% endif %}>
+                            <div class="altmonitor-entry-image-head">
+                                <span class="altmonitor-entry-thumb" aria-hidden="true">{{ asset.getThumbHtml(34)|raw }}</span>
+                                <div class="altmonitor-entry-image-name">
+                                    <span class="altmonitor-entry-filename" title="{{ asset.filename }}">{{ asset.filename }}</span>
+                                    {{ macros.altStatus(image.status) }}
+                                </div>
+                            </div>
+                            {% if image.status.value == 'missing' %}
+                                <p class="altmonitor-sidebar-hint">{{ 'No alt text.'|t('alt-monitor') }}{% if image.fieldName %} {{ 'In “{field}”.'|t('alt-monitor', {field: image.fieldName}) }}{% endif %}</p>
+                            {% else %}
+                                <p class="altmonitor-sidebar-hint">
+                                    {{ 'Now: “{alt}”'|t('alt-monitor', {alt: asset.alt}) }}
+                                    {% if image.issues is not empty %}<br>{{ image.issues|map(issue => issue.label())|join(' ') }}{% endif %}
+                                </p>
+                            {% endif %}
+
+                            {% if suggestion %}
+                                <div class="altmonitor-sidebar-suggestion">
+                                    <span class="altmonitor-suggest-label">{{ 'Suggestion'|t('alt-monitor') }}</span>
+                                    <p class="altmonitor-sidebar-text">{{ suggestion.suggestedAlt }}</p>
+                                    {{ macros.translationNote(suggestion, translator ?? null) }}
+                                    <div class="altmonitor-sidebar-actions">
+                                        {% if canApprove and image.canSave %}
+                                            <button type="button" class="btn small submit" data-entry-use="{{ suggestion.id }}" data-text="{{ suggestion.suggestedAlt }}">{{ 'Use'|t('alt-monitor') }}</button>
+                                        {% endif %}
+                                        {% if canApprove %}
+                                            <button type="button" class="btn small" data-entry-dismiss="{{ suggestion.id }}">{{ 'Reject'|t('alt-monitor') }}</button>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            {% endif %}
+
+                            <div class="altmonitor-sidebar-actions">
+                                {% if describer %}
+                                    <button type="button" class="btn small" data-entry-describe>
+                                        {{ image.suggestion ? 'Describe again'|t('alt-monitor') : 'Describe'|t('alt-monitor') }}
+                                    </button>
+                                {% elseif canGenerateOnServer and image.canSave %}
+                                    <button type="button" class="btn small" data-entry-generate>
+                                        {{ image.suggestion ? 'Get a new suggestion'|t('alt-monitor') : 'Get a suggestion'|t('alt-monitor') }}
+                                    </button>
+                                {% endif %}
+                                <button type="button" class="btn small" data-entry-edit-asset aria-label="{{ 'Edit image {name}'|t('alt-monitor', {name: asset.filename}) }}">{{ 'Edit image'|t('alt-monitor') }}</button>
+                            </div>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+
+            {% set fine = images|length - attention|length %}
+            {% if fine and attention is not empty %}
+                <p class="altmonitor-sidebar-hint">{{ '{count, plural, =1{1 other image is} other{# other images are}} fine.'|t('alt-monitor', {count: fine}) }}</p>
+            {% endif %}
+            {% if hidden %}
+                <p class="altmonitor-sidebar-hint">{{ 'This entry has {count, plural, =1{1 more image} other{# more images}} you can’t see.'|t('alt-monitor', {count: hidden}) }}</p>
+            {% endif %}
+        {% endif %}
+    </div>
+    {% if translator and attention is not empty %}
+        {% include 'alt-monitor/_describer' with {inSidebar: true, describer: translator} %}
+    {% endif %}
+</fieldset>

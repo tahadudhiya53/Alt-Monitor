@@ -9,6 +9,7 @@ use craft\base\Model;
 use craft\base\Plugin;
 use craft\elements\Asset;
 use craft\elements\conditions\assets\AssetCondition;
+use craft\elements\Entry;
 use craft\events\DefineAttributeHtmlEvent;
 use craft\events\DefineHtmlEvent;
 use craft\events\ElementEvent;
@@ -32,12 +33,14 @@ use Tahadudhiya\AltMonitor\services\AssetScanner;
 use Tahadudhiya\AltMonitor\services\AssetsUi;
 use Tahadudhiya\AltMonitor\services\Audits;
 use Tahadudhiya\AltMonitor\services\ContentUsageScanner;
+use Tahadudhiya\AltMonitor\services\EntryCheck;
 use Tahadudhiya\AltMonitor\services\ImageExport;
 use Tahadudhiya\AltMonitor\services\Scans;
 use Tahadudhiya\AltMonitor\services\SuggestionGenerator;
 use Tahadudhiya\AltMonitor\services\Suggestions;
 use Tahadudhiya\AltMonitor\widgets\CoverageWidget;
 use yii\base\Event;
+use yii\base\Model as YiiModel;
 
 /**
  * AltMonitor — image alt text auditing and management for Craft CMS.
@@ -55,6 +58,7 @@ use yii\base\Event;
  * @property-read AssetScanner $assetScanner
  * @property-read AssetsUi $assetsUi
  * @property-read Audits $audits
+ * @property-read EntryCheck $entryCheck
  * @property-read ImageExport $imageExport
  * @property-read ContentUsageScanner $contentUsage
  * @property-read Scans $scans
@@ -98,6 +102,7 @@ class AltMonitor extends Plugin
                 'assetsUi' => ['class' => AssetsUi::class],
                 'audits' => ['class' => Audits::class],
                 'contentUsage' => ['class' => ContentUsageScanner::class],
+                'entryCheck' => ['class' => EntryCheck::class],
                 'imageExport' => ['class' => ImageExport::class],
                 'scans' => ['class' => Scans::class],
                 'suggestionGenerator' => static fn(): SuggestionGenerator => new SuggestionGenerator(self::getInstance()->getAnalyzer()),
@@ -172,6 +177,7 @@ class AltMonitor extends Plugin
             }
         });
         $this->registerAssetScreens();
+        $this->registerEntryScreens();
 
         // Trashed assets are forgotten; hard deletion is handled by foreign keys.
         Event::on(Elements::class, Elements::EVENT_AFTER_DELETE_ELEMENT, function(ElementEvent $event): void {
@@ -229,6 +235,33 @@ class AltMonitor extends Plugin
 
         Event::on(AssetCondition::class, BaseCondition::EVENT_REGISTER_CONDITION_RULES, static function(RegisterConditionRulesEvent $event): void {
             $event->conditionRules[] = AltStatusConditionRule::class;
+        });
+    }
+
+    /**
+     * What AltMonitor adds to Craft's entry editor: the box listing the entry's images with
+     * missing or weak alt text, and the check that can stop publishing while any has none.
+     */
+    private function registerEntryScreens(): void
+    {
+        Event::on(Entry::class, Element::EVENT_DEFINE_SIDEBAR_HTML, function(DefineHtmlEvent $event): void {
+            if (!Craft::$app->getRequest()->getIsCpRequest()) {
+                return;
+            }
+
+            try {
+                /** @var Entry $entry */
+                $entry = $event->sender;
+                $event->html .= $this->getEntryCheck()->sidebarHtml($entry);
+            } catch (\Throwable $exception) {
+                Craft::error('AltMonitor failed rendering the entry sidebar: ' . $exception->getMessage(), __METHOD__);
+            }
+        });
+
+        Event::on(Entry::class, YiiModel::EVENT_AFTER_VALIDATE, function(Event $event): void {
+            /** @var Entry $entry */
+            $entry = $event->sender;
+            $this->safely(fn() => $this->getEntryCheck()->validate($entry), 'checking an entry’s images before publishing');
         });
     }
 
@@ -309,6 +342,12 @@ class AltMonitor extends Plugin
     {
         /** @var Audits */
         return $this->get('audits');
+    }
+
+    public function getEntryCheck(): EntryCheck
+    {
+        /** @var EntryCheck */
+        return $this->get('entryCheck');
     }
 
     public function getImageExport(): ImageExport

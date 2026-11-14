@@ -3,7 +3,9 @@
 namespace Tahadudhiya\AltMonitor\Tests\integration;
 
 use Craft;
+use craft\base\Element;
 use craft\elements\Asset;
+use craft\elements\Entry;
 use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\Psr7\Request;
@@ -12,6 +14,7 @@ use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\RequestInterface;
 use Tahadudhiya\AltMonitor\AltMonitor;
 use Tahadudhiya\AltMonitor\controllers\AssetsController;
+use Tahadudhiya\AltMonitor\controllers\EntriesController;
 use Tahadudhiya\AltMonitor\controllers\SettingsController;
 use Tahadudhiya\AltMonitor\controllers\SuggestionsController;
 use Tahadudhiya\AltMonitor\enums\AltIssue;
@@ -1350,5 +1353,104 @@ class SuggestionsTest extends TestCase
         self::assertStringContainsString('data-altmonitor-test', $ollama);
         self::assertStringContainsString('qwen2.5vl:3b', $ollama);
         self::assertStringNotContainsString('settings[allowedAiHosts]', $page);
+    }
+    // The entry editor
+
+    public function testTheEntryEditorBoxListsTheEntrysImagesWithMissingOrWeakAltText(): void
+    {
+        $missing = self::savedImage('hero-banner.jpg');
+        $weak = self::savedImage('photo-a.jpg', 'image');
+        $good = self::savedImage('heron.jpg', 'A grey heron standing in a shallow pond');
+        $embedded = self::savedImage('chart-q3.jpg');
+        $nested = self::savedImage('product-shot.jpg');
+        $file = self::savedFile('notes.txt');
+        $entry = self::savedEntry('Entry with images', [
+            self::IMAGES => [$missing->id, $weak->id, $good->id, $file->id],
+            self::BODY => "A chart: {asset:$embedded->id:url}",
+        ]);
+        self::savedBlock($entry, [(int)$nested->id]);
+        $entry = Entry::find()->id($entry->id)->status(null)->one();
+        self::assertInstanceOf(Entry::class, $entry);
+
+        // Assets fields, reference tags in text and nested entries, each under its top-level
+        // field; files that aren't images are left out.
+        self::assertSame([
+            (int)$missing->id => self::IMAGES,
+            (int)$weak->id => self::IMAGES,
+            (int)$good->id => self::IMAGES,
+            (int)$embedded->id => self::BODY,
+            (int)$nested->id => self::BLOCKS,
+        ], self::plugin()->getEntryCheck()->imageIds($entry));
+
+        // Checked now, without a scan; a waiting suggestion can be used from the box.
+        self::plugin()->getSuggestions()->storeDescription((int)$missing->id, self::$primarySiteId, 'A mountain landscape at sunrise', $this->signIn(true));
+        $this->editor();
+        $html = self::plugin()->getEntryCheck()->sidebarHtml($entry);
+        self::assertStringContainsString('4 images in this entry have missing or weak alt text.', $html);
+        self::assertStringContainsString('1 other image is fine.', $html);
+        self::assertStringContainsString('chart-q3.jpg', $html);
+        self::assertStringContainsString('In “AltMonitor blocks”.', $html);
+        self::assertStringContainsString('Now: “image”', $html);
+        self::assertStringNotContainsString('heron.jpg', $html);
+        self::assertStringContainsString('A mountain landscape at sunrise', $html);
+        self::assertStringContainsString('data-entry-use=', $html);
+        self::assertStringContainsString('data-entry-describe-all', $html);
+
+        // Fetched again by the editor after an autosave (by someone who may view the entry).
+        $this->signIn(true);
+        $response = $this->runAction(EntriesController::class, 'entries', 'sidebar', ['elementId' => (string)$entry->id, 'siteId' => (string)self::$primarySiteId], method: 'GET');
+        self::assertStringContainsString('data-altmonitor-entry', (string)$response?->data['html']);
+
+        // Using it fixes the image, and the box says so.
+        $suggestion = self::plugin()->getSuggestions()->get((int)$missing->id, self::$primarySiteId);
+        self::assertNotNull($suggestion);
+        self::plugin()->getSuggestions()->approve($suggestion->id, null, $this->editor());
+        self::assertStringContainsString('3 images in this entry have missing or weak alt text.', self::plugin()->getEntryCheck()->sidebarHtml($entry));
+
+        $empty = self::savedEntry('Entry without images');
+        self::assertStringContainsString('No images in this entry yet.', self::plugin()->getEntryCheck()->sidebarHtml($empty));
+    }
+
+    public function testPublishingIsStoppedWhileAnImageInTheEntryHasNoAltText(): void
+    {
+        $missing = self::savedImage('hero-to-publish.jpg');
+        $nested = self::savedImage('bottle-to-publish.jpg');
+        $weak = self::savedImage('photo-to-publish.jpg', 'image');
+        $entry = self::savedEntry('Entry to publish', [self::IMAGES => [$missing->id, $weak->id]]);
+        self::savedBlock($entry, [(int)$nested->id]);
+        $check = self::plugin()->getEntryCheck();
+
+        $live = function() use ($entry): Entry {
+            $fresh = Entry::find()->id($entry->id)->status(null)->one();
+            self::assertInstanceOf(Entry::class, $fresh);
+            $fresh->setScenario(Element::SCENARIO_LIVE);
+
+            return $fresh;
+        };
+
+        // Off by default.
+        $this->asCpRequest();
+        self::assertTrue($live()->validate());
+
+        self::plugin()->getSettings()->requireAltToPublish = true;
+        $blocked = $live();
+        self::assertFalse($blocked->validate());
+        // Named at the field holding them; weak alt text doesn't block.
+        self::assertStringContainsString('hero-to-publish.jpg', (string)$blocked->getFirstError(self::IMAGES));
+        self::assertStringNotContainsString('photo-to-publish.jpg', (string)$blocked->getFirstError(self::IMAGES));
+        self::assertStringContainsString('bottle-to-publish.jpg', (string)$blocked->getFirstError(self::BLOCKS));
+
+        // Not when saving a disabled entry or a draft (not live), nor outside the control panel.
+        $draft = Entry::find()->id($entry->id)->status(null)->one();
+        self::assertInstanceOf(Entry::class, $draft);
+        self::assertTrue($draft->validate());
+        $this->tearDownRequest();
+        self::assertFalse($check->checksOnPublish($live()));
+        $this->asCpRequest();
+
+        // Decorative images and images given alt text are fine.
+        self::plugin()->getAudits()->setDecorative((int)$missing->id, self::$primarySiteId, true);
+        self::plugin()->getAltTextEditor()->save((int)$nested->id, self::$primarySiteId, 'A blue water bottle', $this->signIn(true));
+        self::assertTrue($live()->validate());
     }
 }

@@ -1166,9 +1166,9 @@
             fresh(button) && describeSelected(button);
         });
 
-        // The asset editor's sidebar box sets up its own.
+        // The asset and entry editors' sidebar boxes set up their own.
         root.querySelectorAll('[data-translate-suggestion]').forEach(function(button) {
-            !button.closest('[data-altmonitor-sidebar]') && fresh(button) && button.addEventListener('click', function() {
+            !button.closest('[data-altmonitor-sidebar], [data-altmonitor-entry]') && fresh(button) && button.addEventListener('click', function() {
                 var describer = describers();
 
                 if (describer) {
@@ -2325,8 +2325,239 @@
         }
     }
 
+    // Craft's element editor around a box, once Craft has set it up (it may not have yet).
+    function elementEditor(box) {
+        if (!window.jQuery) {
+            return null;
+        }
+
+        var container = box.closest('[data-element-editor]');
+        var editor = container ? window.jQuery(container).data('elementEditor') : null;
+
+        if (!editor && Craft.cp && Craft.cp.$primaryForm && Craft.cp.$primaryForm.find(box).length) {
+            editor = Craft.cp.$primaryForm.data('elementEditor');
+        }
+
+        return editor || null;
+    }
+
+    // Craft's entry editor (a page or a slide-out): AltMonitor's box listing the entry's images
+    // with missing or weak alt text. An image's alt text belongs to the asset, not the entry, so
+    // Use saves a suggestion to the image right away, and Edit image opens the asset in a
+    // slide-out. The box is fetched again after each autosave of the entry (images added or
+    // removed) and after anything it changed, never the page.
+    function entryBox(box) {
+        if (box.altmonitorReady) {
+            return;
+        }
+
+        box.altmonitorReady = true;
+
+        var key = box.getAttribute('data-key');
+        var panel = box.querySelector('[data-altmonitor-sidebar-describer]');
+        var describer = panel ? new Describer(panel) : null;
+        var describeAll = box.querySelector('[data-entry-describe-all]');
+
+        function imageOf(row) {
+            return {assetId: parseInt(row.getAttribute('data-asset-id'), 10), siteId: parseInt(row.getAttribute('data-audit-site-id'), 10)};
+        }
+
+        function refresh() {
+            return refreshEntryBox(box, true);
+        }
+
+        // Autosaves: the editor may be set up after this box, so it is looked for until found.
+        (function bindEditor(tries) {
+            var editor = elementEditor(box);
+
+            if (!editor) {
+                if (tries < 20) {
+                    setTimeout(function() {
+                        bindEditor(tries + 1);
+                    }, 250);
+                }
+
+                return;
+            }
+
+            editor.altmonitorEntryBox = box;
+
+            if (!editor.altmonitorEntryBound) {
+                editor.altmonitorEntryBound = true;
+                editor.on('afterSaveDraft', function() {
+                    var current = editor.altmonitorEntryBox;
+
+                    if (current && document.body.contains(current)) {
+                        refreshEntryBox(current, false);
+                    }
+                });
+            }
+        })(0);
+
+        box.querySelectorAll('[data-entry-use]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                decide(button, 'approve', {id: button.getAttribute('data-entry-use'), alt: button.getAttribute('data-text')}, refresh);
+            });
+        });
+
+        box.querySelectorAll('[data-entry-dismiss]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                decide(button, 'reject', {id: button.getAttribute('data-entry-dismiss')}, refresh);
+            });
+        });
+
+        box.querySelectorAll('[data-entry-generate]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                button.classList.add('loading');
+                button.disabled = true;
+                Craft.sendActionRequest('POST', 'alt-monitor/suggestions/regenerate', {data: imageOf(button.closest('[data-entry-image]'))}).then(function() {
+                    Craft.cp.displayNotice(Craft.t('alt-monitor', 'Making a new suggestion. It shows here when it’s ready.'));
+                }).catch(function(error) {
+                    var message = error.response && error.response.data && error.response.data.message;
+                    Craft.cp.displayError(message || Craft.t('alt-monitor', 'The suggestion could not be generated.'));
+                    button.disabled = false;
+                }).finally(function() {
+                    button.classList.remove('loading');
+                });
+            });
+        });
+
+        box.querySelectorAll('[data-entry-edit-asset]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                var row = button.closest('[data-entry-image]');
+                var slideout = Craft.createElementEditor('craft\\elements\\Asset', {
+                    elementId: parseInt(row.getAttribute('data-asset-id'), 10),
+                    siteId: parseInt(row.getAttribute('data-asset-site-id'), 10),
+                });
+
+                slideout.on('submit', refresh);
+            });
+        });
+
+        if (describer) {
+            describer.onFinish = refresh;
+        }
+
+        box.querySelectorAll('[data-translate-suggestion]').forEach(function(button) {
+            if (!describer) {
+                return;
+            }
+
+            button.altmonitorBound = true;
+            button.addEventListener('click', function() {
+                var back = box.getAttribute('data-edit-url') || window.location.href;
+                translate(describer, [translateItem(button)], button, new URL(back, window.location.href).href, {sidebar: key}).then(function() {
+                    button.disabled = false;
+                });
+            });
+        });
+
+        var waiting = recall('sessionStorage', 'pending');
+
+        // Back from the image model page with a translation model: translate, once.
+        if (describer && waiting && waiting.sidebar === key && waiting.translate) {
+            remember('sessionStorage', 'pending', null);
+            translationStatus(describer.config, waiting.translate[0].model).then(function(status) {
+                if (status === 'ready' || recall('localStorage', 'notKept.' + waiting.translate[0].model)) {
+                    describer.translateSuggestions(waiting.translate);
+                }
+            });
+        }
+
+        if (!describer) {
+            return;
+        }
+
+        function run(images, button) {
+            var buttons = box.querySelectorAll('[data-entry-describe], [data-entry-describe-all]');
+
+            buttons.forEach(function(other) {
+                other.disabled = true;
+            });
+
+            modelStatus(describer.config).then(function(status) {
+                if (needsConsent(status) && !recall('localStorage', 'notKept') && describer.config.setupUrl) {
+                    // The model page asks before downloading, then comes back to this entry's
+                    // editor, which carries on.
+                    var back = box.getAttribute('data-edit-url') || window.location.href;
+                    var setup = new URL(describer.config.setupUrl, window.location.href);
+                    remember('sessionStorage', 'pending', {sidebar: key, images: images});
+                    setup.searchParams.set('return', new URL(back, window.location.href).href);
+                    window.location.href = setup.href;
+
+                    return;
+                }
+
+                return describer.run(images);
+            }).then(function() {
+                buttons.forEach(function(other) {
+                    other.disabled = false;
+                });
+            });
+        }
+
+        box.querySelectorAll('[data-entry-describe]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                run([imageOf(button.closest('[data-entry-image]'))], button);
+            });
+        });
+
+        if (describeAll) {
+            describeAll.addEventListener('click', function() {
+                run(Array.prototype.map.call(box.querySelectorAll('[data-entry-image][data-problem]'), imageOf), describeAll);
+            });
+        }
+
+        // Back from the image model page: describe what was asked for, once.
+        if (waiting && waiting.sidebar === key && waiting.images) {
+            remember('sessionStorage', 'pending', null);
+            modelStatus(describer.config).then(function(status) {
+                if (status === 'ready' || recall('localStorage', 'notKept')) {
+                    run(waiting.images);
+                }
+            });
+        }
+    }
+
+    // Renders an entry box again for what the editor holds now (after the first autosave, a
+    // draft). After an autosave (`force` false) it is only replaced when something it shows
+    // changed, and never while it is busy (describing, or a request on its way).
+    function refreshEntryBox(box, force) {
+        var editor = elementEditor(box);
+        var busy = box.querySelector('dialog[open], .btn.loading');
+
+        if (!force && busy) {
+            return Promise.resolve();
+        }
+
+        return Craft.sendActionRequest('GET', 'alt-monitor/entries/sidebar', {
+            params: {
+                elementId: editor && editor.settings.elementId ? editor.settings.elementId : box.getAttribute('data-element-id'),
+                siteId: editor && editor.settings.siteId ? editor.settings.siteId : box.getAttribute('data-site-id'),
+            },
+        }).then(function(response) {
+            var holder = document.createElement('div');
+            holder.innerHTML = response.data.html || '';
+            var fresh = holder.querySelector('[data-altmonitor-entry]');
+
+            if (!fresh || !box.parentNode || (!force && fresh.getAttribute('data-signature') === box.getAttribute('data-signature'))) {
+                return;
+            }
+
+            box.replaceWith(fresh);
+
+            // Craft loads thumbnails by script, as it does for content it loads itself.
+            if (window.jQuery && Craft.cp && Craft.cp.elementThumbLoader) {
+                Craft.cp.elementThumbLoader.load(window.jQuery(fresh));
+            }
+
+            entryBox(fresh);
+        }).catch(function() {});
+    }
+
     function sidebarBoxes() {
         document.querySelectorAll('[data-altmonitor-sidebar]').forEach(sidebarBox);
+        document.querySelectorAll('[data-altmonitor-entry]').forEach(entryBox);
     }
 
     sidebarBoxes();
@@ -2338,7 +2569,7 @@
         // Only when something added holds a box: other changes (progress bars, lists, Craft's
         // own updates) don't search the page.
         var holdsBox = function(node) {
-            return node.nodeType === 1 && (node.matches('[data-altmonitor-sidebar]') || node.querySelector('[data-altmonitor-sidebar]') !== null);
+            return node.nodeType === 1 && (node.matches('[data-altmonitor-sidebar], [data-altmonitor-entry]') || node.querySelector('[data-altmonitor-sidebar], [data-altmonitor-entry]') !== null);
         };
 
         new MutationObserver(function(mutations) {
