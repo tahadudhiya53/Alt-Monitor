@@ -7,6 +7,7 @@ use craft\helpers\Queue as QueueHelper;
 use craft\i18n\Translation;
 use craft\queue\BaseJob;
 use Tahadudhiya\AltMonitor\AltMonitor;
+use Tahadudhiya\AltMonitor\enums\SuggestionStatus;
 use yii\queue\RetryableJobInterface;
 
 /**
@@ -21,7 +22,7 @@ class GenerateAltTextJob extends BaseJob implements RetryableJobInterface
     /** Images per job while walking the audit; a local model can take a minute for each. */
     public const WALK_BATCH = 5;
 
-    /** @var list<array{0: int, 1: int}> Asset and site IDs. */
+    /** @var list<array{0: int, 1: int, 2?: string}> Asset and site IDs, and the status of the suggestion each had. */
     public array $targets = [];
 
     /** Whether the job walks the audit for images wanting a suggestion. */
@@ -46,15 +47,21 @@ class GenerateAltTextJob extends BaseJob implements RetryableJobInterface
             $targets = $suggestions->reserve(array_map(static fn(array $row): array => [$row['assetId'], $row['siteId']], $rows));
         }
 
-        foreach ($targets as $i => [$assetId, $siteId]) {
+        foreach ($targets as $i => $target) {
+            [$assetId, $siteId] = $target;
+            $previous = isset($target[2]) ? SuggestionStatus::tryFrom($target[2]) : null;
             $this->setProgress($queue, $i / max(1, count($targets)));
 
             // One image failing never leaves the others, or itself, marked as generating.
             try {
-                $suggestions->generate((int)$assetId, (int)$siteId);
+                $suggestions->generate((int)$assetId, (int)$siteId, $previous);
             } catch (\Throwable $exception) {
                 Craft::error(sprintf('AltMonitor could not generate a suggestion for asset %d: %s', $assetId, $exception->getMessage()), __METHOD__);
-                $suggestions->markFailed((int)$assetId, (int)$siteId, Craft::t('alt-monitor', 'Generating failed because of an error. The Craft logs have the details.'));
+                $reason = Craft::t('alt-monitor', 'Something went wrong while making suggestions. See the Craft logs for details.');
+
+                if ($previous === null || !$suggestions->keepPrevious((int)$assetId, (int)$siteId, $previous, $reason)) {
+                    $suggestions->markFailed((int)$assetId, (int)$siteId, $reason);
+                }
             }
         }
 
@@ -80,7 +87,7 @@ class GenerateAltTextJob extends BaseJob implements RetryableJobInterface
     protected function defaultDescription(): ?string
     {
         return $this->walk
-            ? Translation::prep('alt-monitor', 'Generating alt text suggestions')
-            : Translation::prep('alt-monitor', 'Generating alt text suggestions for {count, number} {count, plural, =1{image} other{images}}', ['count' => count($this->targets)]);
+            ? Translation::prep('alt-monitor', 'Making alt text suggestions')
+            : Translation::prep('alt-monitor', 'Making alt text suggestions for {count, number} {count, plural, =1{image} other{images}}', ['count' => count($this->targets)]);
     }
 }

@@ -3,6 +3,7 @@
 namespace Tahadudhiya\AltMonitor\controllers;
 
 use Craft;
+use craft\elements\Asset;
 use craft\web\Controller;
 use InvalidArgumentException;
 use Tahadudhiya\AltMonitor\AltMonitor;
@@ -11,6 +12,7 @@ use Tahadudhiya\AltMonitor\enums\SuggestionStatus;
 use Tahadudhiya\AltMonitor\enums\UsageStatus;
 use Tahadudhiya\AltMonitor\errors\AltTextException;
 use Tahadudhiya\AltMonitor\models\ListCriteria;
+use Tahadudhiya\AltMonitor\services\AltTextEditor;
 use yii\web\BadRequestHttpException;
 use yii\web\NotFoundHttpException;
 use yii\web\Response;
@@ -54,17 +56,50 @@ class AssetsController extends Controller
 
         $audits = AltMonitor::getInstance()->getAudits();
         $volumeIds = $audits->viewableVolumeIds($this->user());
+        $stats = $audits->stats($volumeIds, $this->user());
 
         return $this->renderTemplate('alt-monitor/images/_index', [
             'criteria' => $criteria,
             'page' => $audits->page($criteria, $volumeIds, $this->user()),
-            'stats' => $audits->stats($volumeIds),
+            'stats' => $stats,
             'volumes' => array_values(array_filter(Craft::$app->getVolumes()->getAllVolumes(), static fn($volume): bool => in_array((int)$volume->id, $volumeIds, true))),
             'statuses' => AltStatus::cases(),
             'usageStatuses' => UsageStatus::cases(),
             'suggestionStatuses' => SuggestionStatus::cases(),
             'failures' => $this->failures(),
+            // For the empty list: a scan already on its way, rather than a button to start one.
+            'activeScan' => $stats->audited === 0 ? AltMonitor::getInstance()->getScans()->active() : null,
         ] + $this->abilities() + $this->describer());
+    }
+
+    /**
+     * The list as a CSV file, with the same filters (all pages, not just one): for content teams
+     * who write alt text outside the control panel. Only reads, so a plain link (GET) does it.
+     *
+     * @throws BadRequestHttpException if a filter is malformed.
+     */
+    public function actionExport(): Response
+    {
+        try {
+            $criteria = ListCriteria::fromParams($this->request->getQueryParams());
+        } catch (InvalidArgumentException $exception) {
+            throw new BadRequestHttpException($exception->getMessage(), 0, $exception);
+        }
+
+        $export = AltMonitor::getInstance()->getImageExport();
+        // Kept in memory up to 2 MB, then in a temporary file.
+        $handle = fopen('php://temp', 'w+');
+
+        if ($handle === false) {
+            throw new \RuntimeException('Could not open a temporary stream for the export.');
+        }
+
+        $export->write($criteria, $this->user(), $handle);
+        rewind($handle);
+
+        return $this->response->sendStreamAsFile($handle, $export->filename($criteria), [
+            'mimeType' => 'text/csv; charset=UTF-8',
+        ]);
     }
 
     /**
@@ -76,7 +111,7 @@ class AssetsController extends Controller
         $item = $plugin->getAudits()->item($assetId, $siteId, $this->user());
 
         if ($item === null || !in_array((int)$item->asset->volumeId, $plugin->getAudits()->viewableVolumeIds($this->user()), true)) {
-            throw new NotFoundHttpException(Craft::t('alt-monitor', 'This image has not been audited, or you may not view it.'));
+            throw new NotFoundHttpException(Craft::t('alt-monitor', 'This image hasn’t been checked yet, or you can’t see it.'));
         }
 
         return $this->renderTemplate('alt-monitor/images/_view', [
@@ -86,17 +121,72 @@ class AssetsController extends Controller
     }
 
     /**
-     * Saves one image's alt text.
+     * How alt text being typed would be graded, without saving anything: the same rules a scan
+     * applies, so editors see the hints while they write.
+     */
+    public function actionCheck(): Response
+    {
+        $this->requirePostRequest();
+        $this->requireAcceptsJson();
+
+        $plugin = AltMonitor::getInstance();
+        $typed = $this->text('alt');
+        $item = $plugin->getAudits()->item($this->positiveInt('assetId'), $this->positiveInt('siteId'), $this->user());
+
+        if ($item === null || !in_array((int)$item->asset->volumeId, $plugin->getAudits()->viewableVolumeIds($this->user()), true)) {
+            throw new NotFoundHttpException(Craft::t('alt-monitor', 'This image hasn’t been checked yet, or you can’t see it.'));
+        }
+
+        try {
+            $text = AltTextEditor::sanitize($typed);
+        } catch (AltTextException $exception) {
+            return $this->asJson(['status' => null, 'issues' => [$exception->getMessage()]]);
+        }
+
+        $analysis = $plugin->getAnalyzer()->analyze($text, $item->asset->filename, $item->decorative);
+
+        return $this->asJson([
+            'status' => ['value' => $analysis->status->value, 'label' => $analysis->status->label(), 'color' => $analysis->status->color()],
+            'issues' => array_map(static fn($issue): string => $issue->label(), $analysis->issues),
+        ]);
+    }
+
+    /**
+     * The box in Craft's asset editor sidebar, rendered again after something changed it (an
+     * image described), so it updates without reloading the editor and losing unsaved changes.
+     */
+    public function actionSidebar(): Response
+    {
+        $this->requireAcceptsJson();
+        $asset = Craft::$app->getElements()->getElementById($this->queryInt('assetId'), Asset::class, $this->queryInt('siteId'));
+
+        if (!$asset instanceof Asset || !Craft::$app->getElements()->canView($asset, $this->user())) {
+            throw new NotFoundHttpException(Craft::t('alt-monitor', 'This image hasn’t been checked yet, or you can’t see it.'));
+        }
+
+        // The box sends whether its editor is read-only, so it stays so after a refresh. Saving
+        // still checks the user may save the asset.
+        $static = (bool)$this->request->getQueryParam('static');
+
+        return $this->asJson(['html' => AltMonitor::getInstance()->getAssetsUi()->sidebarHtml($asset, $static)]);
+    }
+
+    /**
+     * Saves one image's alt text. The answer carries the image's status afterwards, so the
+     * images list can update the row in place.
      */
     public function actionSave(): ?Response
     {
         $this->requirePostRequest();
         $this->requirePermission(AltMonitor::PERMISSION_EDIT_ALT);
 
+        $plugin = AltMonitor::getInstance();
+        $siteId = $this->positiveInt('siteId');
+
         try {
-            $asset = AltMonitor::getInstance()->getAltTextEditor()->save(
+            $asset = $plugin->getAltTextEditor()->save(
                 $this->positiveInt('assetId'),
-                $this->positiveInt('siteId'),
+                $siteId,
                 $this->text('alt'),
                 $this->user(),
             );
@@ -104,7 +194,15 @@ class AssetsController extends Controller
             return $this->asFailure($exception->getMessage());
         }
 
-        return $this->asSuccess(Craft::t('alt-monitor', 'Alt text saved.'), ['alt' => $asset->alt]);
+        $item = $plugin->getAudits()->item($asset->id, $siteId, $this->user());
+        $status = $item?->status;
+
+        return $this->asSuccess(Craft::t('alt-monitor', 'Alt text saved.'), [
+            'alt' => $asset->alt,
+            'status' => $status ? ['value' => $status->value, 'label' => $status->label(), 'color' => $status->color()] : null,
+            'issues' => $item && $status !== AltStatus::MISSING ? array_map(fn($issue) => $issue->label(), $item->issues) : [],
+            'hasSuggestion' => $item?->hasNewSuggestion() ?? false,
+        ]);
     }
 
     /**
@@ -131,18 +229,22 @@ class AssetsController extends Controller
     }
 
     /**
-     * Acts on the images selected in the list: saves the alt text typed for them, approves their
-     * pending suggestions, or queues suggestions for them. A row's own Save button saves just
-     * that row. Each image succeeds or fails on its own, and every failure is reported.
+     * The Images list's form. “Save changes” (`save`) saves every row whose alt text differs from
+     * what the page showed, whatever is selected; the other actions act on the selected images:
+     * mark them decorative, approve their pending suggestions, or queue suggestions for them.
+     * Each image succeeds or fails on its own, and every failure is reported.
      */
     public function actionBulk(): ?Response
     {
         $this->requirePostRequest();
 
-        $single = $this->request->getBodyParam('save');
-        $keys = is_string($single) ? [$single] : (array)$this->request->getBodyParam('selected', []);
-        $intent = is_string($single) ? 'save' : (string)$this->request->getBodyParam('intent');
-        $pairs = $this->pairs($keys);
+        $intent = (string)$this->request->getBodyParam('intent');
+
+        if ($intent === 'save') {
+            return $this->saveChanged();
+        }
+
+        $pairs = $this->pairs((array)$this->request->getBodyParam('selected', []));
 
         if ($pairs === []) {
             return $this->asFailure(Craft::t('alt-monitor', 'Select at least one image.'));
@@ -154,25 +256,30 @@ class AssetsController extends Controller
         $done = 0;
 
         switch ($intent) {
-            case 'save':
+            case 'decorative':
+                // As on an image's page: the flag only, never the alt text, which someone wrote.
                 $this->requirePermission(AltMonitor::PERMISSION_EDIT_ALT);
-                $texts = (array)$this->request->getBodyParam('alt', []);
+                $withAlt = 0;
 
                 foreach ($pairs as $key => [$assetId, $siteId]) {
-                    if (!isset($texts[$key]) || !is_string($texts[$key])) {
-                        $failures[$key] = Craft::t('alt-monitor', 'No alt text was sent for this image.');
+                    try {
+                        $asset = $plugin->getAltTextEditor()->editableImage($assetId, $siteId, $user);
+                    } catch (AltTextException $exception) {
+                        $failures[$key] = $exception->getMessage();
                         continue;
                     }
 
-                    try {
-                        $plugin->getAltTextEditor()->save($assetId, $siteId, $texts[$key], $user);
-                        $done++;
-                    } catch (AltTextException $exception) {
-                        $failures[$key] = $exception->getMessage();
-                    }
+                    $plugin->getAudits()->setDecorative((int)$asset->id, (int)$asset->siteId, true);
+                    $plugin->getAssetScanner()->auditAsset($asset);
+                    $done++;
+                    $withAlt += trim((string)$asset->alt) === '' ? 0 : 1;
                 }
 
-                $message = Craft::t('alt-monitor', 'Alt text saved for {count, number} {count, plural, =1{image} other{images}}.', ['count' => $done]);
+                $message = Craft::t('alt-monitor', 'Marked {count, number} {count, plural, =1{image} other{images}} as decorative.', ['count' => $done]);
+
+                if ($withAlt > 0) {
+                    $message .= ' ' . Craft::t('alt-monitor', '{count, number} of them still {count, plural, =1{has} other{have}} alt text. Clear it if the image is only decoration.', ['count' => $withAlt]);
+                }
                 break;
             case 'approve':
                 $this->requirePermission(AltMonitor::PERMISSION_APPROVE);
@@ -221,6 +328,53 @@ class AssetsController extends Controller
         }
 
         return $this->respond($message, $failures, $done);
+    }
+
+    /**
+     * Saves the rows whose typed text differs from the text they were shown with (`original`),
+     * so text someone else saved meanwhile in a row left alone isn't overwritten.
+     */
+    private function saveChanged(): ?Response
+    {
+        $this->requirePermission(AltMonitor::PERMISSION_EDIT_ALT);
+
+        $texts = $this->request->getBodyParam('alt', []);
+        $originals = $this->request->getBodyParam('original', []);
+
+        if (!is_array($texts) || !is_array($originals)) {
+            throw new BadRequestHttpException('Malformed alt text.');
+        }
+
+        $editor = AltMonitor::getInstance()->getAltTextEditor();
+        $user = $this->user();
+        $failures = [];
+        $done = 0;
+
+        foreach ($this->pairs(array_map('strval', array_keys($texts))) as $key => [$assetId, $siteId]) {
+            $text = $texts[$key];
+            $original = $originals[$key] ?? null;
+
+            if (!is_string($text) || ($original !== null && !is_string($original))) {
+                throw new BadRequestHttpException('Malformed alt text.');
+            }
+
+            if ($text === $original) {
+                continue;
+            }
+
+            try {
+                $editor->save($assetId, $siteId, $text, $user);
+                $done++;
+            } catch (AltTextException $exception) {
+                $failures[$key] = $exception->getMessage();
+            }
+        }
+
+        if ($done === 0 && $failures === []) {
+            return $this->asSuccess(Craft::t('alt-monitor', 'Nothing changed, so nothing was saved.'));
+        }
+
+        return $this->respond(Craft::t('alt-monitor', 'Alt text saved for {count, number} {count, plural, =1{image} other{images}}.', ['count' => $done]), $failures, $done);
     }
 
     /**
@@ -290,14 +444,14 @@ class AssetsController extends Controller
     }
 
     /**
-     * @return array{describer: array<string, string|null>|null}
+     * @return array{describer: array<string, mixed>|null, translator: array<string, mixed>|null}
      */
     private function describer(): array
     {
-        $plugin = AltMonitor::getInstance();
+        $providers = AltMonitor::getInstance()->getAiProviders();
+        $describer = $providers->describerConfig();
 
-        return ['describer' => Craft::$app->getUser()->checkPermission(AltMonitor::PERMISSION_GENERATE) && !$plugin->getSuggestions()->generatesOnServer()
-            ? $plugin->getAiProviders()->browserConfig()
-            : null, ];
+        // Whoever describes in the browser translates there too: the same config, built once.
+        return ['describer' => $describer, 'translator' => $describer ?? $providers->translatorConfig()];
     }
 }

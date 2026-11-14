@@ -8,6 +8,22 @@
     <span class="status-label {{ suggestion.status.color() }}" data-suggestion-status="{{ suggestion.status.value }}"><span class="status"></span><span class="status-label-text">{{ suggestion.status.label() }}</span></span>
 {% endmacro %}
 
+{# An English description for a site in another language: shown wherever the suggestion is, with
+ # Translate where the browser can translate it (`translator`: the browser config, or null). #}
+{% macro translationNote(suggestion, translator) %}
+    {% if suggestion and suggestion.needsTranslation() %}
+        {% set translation = translator ? suggestion.translation() : null %}
+        <p class="altmonitor-translate warning with-icon" data-translation-note>
+            {{ 'This suggestion is in English. Translate it before using it.'|t('alt-monitor') }}
+            {% if translation %}
+                <button type="button" class="btn small" data-translate-suggestion="{{ suggestion.id }}" data-key="{{ suggestion.assetId }}-{{ suggestion.siteId }}" data-text="{{ suggestion.suggestedAlt }}" data-language="{{ translation.language }}">
+                    {{- 'Translate into {language}'|t('alt-monitor', {language: translation.name}) -}}
+                </button>
+            {% endif %}
+        </p>
+    {% endif %}
+{% endmacro %}
+
 {% macro pagination(page, criteria, path, noun) %}
     {% if page.total > 0 %}
         <nav class="flex pagination" aria-label="{{ 'Pages'|t('alt-monitor') }}">
@@ -40,6 +56,6 @@
 {% macro pastEnd(page, criteria, path) %}
     <p class="zilch">
         {{ 'There is no page {page, number}.'|t('alt-monitor', {page: page.page}) }}
-        <a href="{{ url(path, criteria.params({page: null})) }}">{{ 'Go to the first page'|t('alt-monitor') }}</a>
+        <a href="{{ url(path, criteria.params({page: null})) }}" data-altmonitor-past-end>{{ 'Back to the first page'|t('alt-monitor') }}</a>
     </p>
 {% endmacro %}

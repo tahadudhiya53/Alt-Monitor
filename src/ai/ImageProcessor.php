@@ -39,11 +39,11 @@ class ImageProcessor
     public function jpeg(Asset $asset): string
     {
         if ($asset->kind !== Asset::KIND_IMAGE || !Image::canManipulateAsImage((string)$asset->getExtension())) {
-            throw new AiProviderException(Craft::t('alt-monitor', 'This kind of image can’t be prepared for the model.'));
+            throw new AiProviderException(Craft::t('alt-monitor', 'This type of image can’t be sent to the model.'));
         }
 
         if ($asset->size !== null && $asset->size > self::MAX_FILE_SIZE) {
-            throw new AiProviderException(Craft::t('alt-monitor', 'The image file is too large to send to the model.'));
+            throw new AiProviderException(Craft::t('alt-monitor', 'The image is too large for the model.'));
         }
 
         $source = null;

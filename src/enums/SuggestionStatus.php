@@ -21,8 +21,8 @@ enum SuggestionStatus: string
     public function label(): string
     {
         return match ($this) {
-            self::QUEUED => Craft::t('alt-monitor', 'Generating'),
-            self::PENDING => Craft::t('alt-monitor', 'Pending review'),
+            self::QUEUED => Craft::t('alt-monitor', 'In progress'),
+            self::PENDING => Craft::t('alt-monitor', 'Waiting for review'),
             self::APPROVED => Craft::t('alt-monitor', 'Approved'),
             self::REJECTED => Craft::t('alt-monitor', 'Rejected'),
             self::FAILED => Craft::t('alt-monitor', 'Failed'),

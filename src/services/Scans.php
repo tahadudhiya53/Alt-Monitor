@@ -7,6 +7,7 @@ use craft\db\Query;
 use craft\helpers\DateTimeHelper;
 use craft\helpers\Db;
 use craft\helpers\Queue;
+use craft\queue\QueueInterface;
 use DateTime;
 use Tahadudhiya\AltMonitor\AltMonitor;
 use Tahadudhiya\AltMonitor\enums\ScanStatus;
@@ -30,6 +31,9 @@ class Scans extends Component
     /** Seconds without progress after which an active scan is considered abandoned. */
     public const STALE_AFTER = 1800;
 
+    /** Seconds without progress after which a scan is abandoned even while the queue is busy. */
+    public const ABANDONED_AFTER = 21600;
+
     private const MUTEX = 'altmonitor:scans';
 
     /**
@@ -44,12 +48,12 @@ class Scans extends Component
         $mutex = Craft::$app->getMutex();
 
         if (!$mutex->acquire(self::MUTEX, 5)) {
-            throw new ScanInProgressException(Craft::t('alt-monitor', 'Another scan is being started. Try again in a moment.'));
+            throw new ScanInProgressException(Craft::t('alt-monitor', 'Another scan is starting. Try again in a moment.'));
         }
 
         try {
             if ($this->active() !== null) {
-                throw new ScanInProgressException(Craft::t('alt-monitor', 'A scan is already queued or running.'));
+                throw new ScanInProgressException(Craft::t('alt-monitor', 'A scan is already running or waiting to start.'));
             }
 
             if ($type === ScanType::INCREMENTAL && $this->changedSince() === null) {
@@ -102,8 +106,9 @@ class Scans extends Component
     }
 
     /**
-     * The scan that is queued or running, if any. One abandoned for longer than
-     * {@see STALE_AFTER} is marked failed instead.
+     * The scan that is queued or running, if any. One without progress for longer than
+     * {@see STALE_AFTER} while the queue has nothing left (or {@see ABANDONED_AFTER} in any
+     * case) is marked failed instead.
      */
     public function active(): ?Scan
     {
@@ -119,13 +124,27 @@ class Scans extends Component
 
         $scan = self::model($row);
 
-        if ($scan->dateUpdated->getTimestamp() < time() - self::STALE_AFTER) {
-            $this->fail($scan->id, Craft::t('alt-monitor', 'The scan stopped reporting progress and was abandoned.'));
+        $idle = time() - $scan->dateUpdated->getTimestamp();
+
+        if ($idle > self::ABANDONED_AFTER || ($idle > self::STALE_AFTER && !self::queueIsBusy())) {
+            $this->fail($scan->id, Craft::t('alt-monitor', 'The scan stopped responding and was cancelled.'));
 
             return null;
         }
 
         return $scan;
+    }
+
+    /**
+     * Whether Craft's queue still has jobs waiting or running. A scan's next job waits behind
+     * the others (a long run of suggestions, say), so it only counts as abandoned once the queue
+     * has nothing left that could be it.
+     */
+    private static function queueIsBusy(): bool
+    {
+        $queue = Craft::$app->getQueue();
+
+        return $queue instanceof QueueInterface && ($queue->getHasWaitingJobs() || $queue->getHasReservedJobs());
     }
 
     /**

@@ -25,16 +25,16 @@ enum AltIssue: string
     {
         return match ($this) {
             self::EMPTY => Craft::t('alt-monitor', 'There is no alt text.'),
-            self::DECORATIVE => Craft::t('alt-monitor', 'Marked as decorative, so empty alt text is intended.'),
-            self::POSSIBLY_DECORATIVE => Craft::t('alt-monitor', 'There is no alt text, but the file name suggests the image may be decorative.'),
+            self::DECORATIVE => Craft::t('alt-monitor', 'Marked as decorative, so no alt text is fine.'),
+            self::POSSIBLY_DECORATIVE => Craft::t('alt-monitor', 'No alt text, but the file name suggests the image may be decorative.'),
             self::FILENAME => Craft::t('alt-monitor', 'The alt text is the file name.'),
             self::FILE_EXTENSION => Craft::t('alt-monitor', 'The alt text contains a file extension.'),
-            self::IDENTIFIER => Craft::t('alt-monitor', 'The alt text is an identifier rather than a description.'),
-            self::GENERIC => Craft::t('alt-monitor', 'The alt text is a generic word that describes nothing.'),
+            self::IDENTIFIER => Craft::t('alt-monitor', 'The alt text is a code, not a description.'),
+            self::GENERIC => Craft::t('alt-monitor', 'The alt text is a generic word that says nothing.'),
             self::REPETITIVE => Craft::t('alt-monitor', 'The alt text repeats the same words.'),
-            self::REDUNDANT_PREFIX => Craft::t('alt-monitor', 'The alt text starts with “image of” or similar, which screen readers already announce.'),
+            self::REDUNDANT_PREFIX => Craft::t('alt-monitor', 'The alt text starts with “image of” or similar. Screen readers already say that.'),
             self::VERY_SHORT => Craft::t('alt-monitor', 'The alt text is very short.'),
-            self::TOO_LONG => Craft::t('alt-monitor', 'The alt text is long; consider a shorter description or a caption.'),
+            self::TOO_LONG => Craft::t('alt-monitor', 'The alt text is long. Try a shorter one, or use a caption.'),
         };
     }
 }

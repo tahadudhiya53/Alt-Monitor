@@ -80,7 +80,7 @@ final class PromptBuilder
         }
 
         if ($text === '' || !preg_match('/\p{L}/u', $text)) {
-            throw new AiProviderException(Craft::t('alt-monitor', 'The model returned no usable description.'));
+            throw new AiProviderException(Craft::t('alt-monitor', 'The model gave no usable description.'));
         }
 
         return mb_strtoupper(mb_substr($text, 0, 1)) . mb_substr($text, 1);

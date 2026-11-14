@@ -8,6 +8,7 @@ use craft\elements\Asset;
 use craft\helpers\Db;
 use PHPUnit\Framework\TestCase;
 use Tahadudhiya\AltMonitor\AltMonitor;
+use Tahadudhiya\AltMonitor\console\controllers\ScanController as ConsoleScanController;
 use Tahadudhiya\AltMonitor\controllers\DashboardController;
 use Tahadudhiya\AltMonitor\enums\AltStatus;
 use Tahadudhiya\AltMonitor\enums\ScanStatus;
@@ -20,6 +21,7 @@ use Tahadudhiya\AltMonitor\records\AuditRecord;
 use Tahadudhiya\AltMonitor\records\ScanRecord;
 use Tahadudhiya\AltMonitor\services\AssetScanner;
 use Tahadudhiya\AltMonitor\Tests\_support\AltMonitorFixture;
+use Tahadudhiya\AltMonitor\widgets\CoverageWidget;
 
 /**
  * Scanning real assets and content through the queue: discovery, classification, sites and
@@ -105,6 +107,25 @@ class ScanTest extends TestCase
 
         // A full scan goes on to scan usage.
         self::assertSame(ScanStatus::COMPLETED, self::plugin()->getScans()->latestCompleted([ScanType::USAGE])?->status);
+    }
+
+    public function testAddingAnExtraGenericWordReChecksImagesThatDidNotChange(): void
+    {
+        $image = self::savedImage('IMG_2010.jpg', 'Slide');
+        $plugin = self::plugin();
+
+        $this->scan(ScanType::FULL);
+        self::assertSame('good', self::altStatusOf($image));
+
+        // The team says “slide” describes nothing. The image itself didn't change, but the next
+        // scan checks it again with the new word.
+        $plugin->getSettings()->additionalGenericTerms = ['slide'];
+        $plugin->set('analyzer', AltMonitor::config()['components']['analyzer']);
+        $this->scan(ScanType::FULL);
+        self::assertSame('weak', self::altStatusOf($image));
+        self::assertStringContainsString('generic', (string)(self::audits($image)[self::$primarySiteId]['issues'] ?? ''));
+
+        $plugin->getSettings()->additionalGenericTerms = [];
     }
 
     public function testRescanningIsIdempotentAndKeepsOneAuditPerImageAndSite(): void
@@ -371,6 +392,24 @@ class ScanTest extends TestCase
         self::assertSame('completed', $progress?->data['scan']['status'] ?? null);
     }
 
+    public function testImagesCheckedOnSaveAloneDontCountAsAScan(): void
+    {
+        // As on a fresh install: no scan yet, but saving an image checks it.
+        \craft\helpers\Db::delete(\Tahadudhiya\AltMonitor\records\ScanRecord::TABLE);
+        self::savedImage('IMG_5100.png');
+        $this->signIn(false, ['accessCp', 'accessPlugin-alt-monitor', AltMonitor::PERMISSION_VIEW, AltMonitor::PERMISSION_RUN_SCANS, ...self::assetPermissions()]);
+        $dashboard = fn(): string => self::html($this->runAction(DashboardController::class, 'dashboard', 'index', [], method: 'GET', json: false));
+
+        $html = $dashboard();
+        self::assertStringContainsString('Scan all images', $html);
+        self::assertStringNotContainsString('images checked.', $html);
+
+        $this->scan(ScanType::FULL);
+        $html = $dashboard();
+        self::assertStringNotContainsString('Scan all images', $html);
+        self::assertStringContainsString('images checked.', $html);
+    }
+
     public function testEachBatchIsQueuedOnlyOnceItsLockIsReleased(): void
     {
         self::savedImage('IMG_6000.png');
@@ -401,5 +440,113 @@ class ScanTest extends TestCase
         self::assertNotEmpty($lockFreeAtPush);
         self::assertNotContains(false, $lockFreeAtPush, 'A batch was queued while its lock was held, so another worker would skip it.');
         self::assertSame(ScanStatus::COMPLETED, self::plugin()->getScans()->get($scan->id)?->status);
+    }
+
+    public function testCraftsDashboardWidgetShowsCoverageOnlyToThoseWhoMayViewAltMonitor(): void
+    {
+        self::savedImage('IMG_6200.png');
+        self::plugin()->getScans()->start(ScanType::FULL);
+        $this->runJobs();
+
+        $this->signIn(true);
+        self::assertTrue(CoverageWidget::isSelectable());
+        $html = (string)(new CoverageWidget())->getBodyHtml();
+        $stats = self::plugin()->getAudits()->stats(self::plugin()->getAudits()->viewableVolumeIds(null));
+        self::assertStringContainsString($stats->coverage() . '%', $html);
+        self::assertStringContainsString('role="progressbar"', $html);
+        self::assertStringContainsString('alt-monitor/images?status=missing', $html);
+        self::assertStringContainsString('Last scan:', $html);
+        // Never a claim of compliance: only “no known problem”.
+        self::assertStringNotContainsStringIgnoringCase('wcag', $html);
+
+        $this->signIn(false, ['accessCp']);
+        self::assertFalse(CoverageWidget::isSelectable());
+        self::assertNull((new CoverageWidget())->getBodyHtml());
+    }
+
+    // The console command
+
+    public function testTheConsoleCommandQueuesAScanAndRefusesASecondOne(): void
+    {
+        self::savedImage('IMG_6100.png');
+
+        [$code, $out] = $this->command(['full' => true, 'usage' => true]);
+        self::assertSame(64, $code);
+        self::assertStringContainsString('not both', $out);
+        self::assertNull(self::plugin()->getScans()->active());
+
+        [$code, $out] = $this->command(['full' => true]);
+        self::assertSame(0, $code);
+        self::assertStringContainsString('Full scan queued.', $out);
+        self::assertStringContainsString('--wait', $out);
+        self::assertSame(ScanType::FULL, self::plugin()->getScans()->active()?->type);
+
+        // One scan at a time: a cron job finding one running says so with a “try again” code.
+        [$code, $out] = $this->command([]);
+        self::assertSame(75, $code);
+        self::assertStringContainsString('already running or waiting to start', $out);
+    }
+
+    public function testWithWaitTheConsoleCommandRunsTheScanAndReportsTheResult(): void
+    {
+        self::savedImage('IMG_6101.png');
+        self::savedImage('harbour.png', 'A harbour at night');
+
+        [$code, $out] = $this->command(['full' => true, 'wait' => true]);
+
+        self::assertSame(0, $code, $out);
+        self::assertStringContainsString('Full scan queued.', $out);
+        self::assertStringContainsString('Scan completed.', $out);
+        self::assertMatchesRegularExpression('/Missing: [1-9]/', $out);
+        self::assertSame(ScanStatus::COMPLETED, self::plugin()->getScans()->latest()?->status);
+
+        // Later ones only read what changed.
+        [$code, $out] = $this->command(['wait' => true]);
+        self::assertSame(0, $code, $out);
+        self::assertStringContainsString('Changes-only scan queued.', $out);
+    }
+
+    /**
+     * Runs `alt-monitor/scan` with the given options. Its queue runs the jobs this test caught
+     * (never the host's real queue), and its output is captured.
+     *
+     * @param array<string, bool> $options
+     * @return array{int, string} Exit code and output.
+     */
+    private function command(array $options): array
+    {
+        $controller = new class('scan', self::plugin()) extends ConsoleScanController {
+            public string $output = '';
+            public ?\Closure $runner = null;
+
+            /** @return int */
+            public function stdout($string)
+            {
+                $this->output .= $string;
+
+                return strlen($string);
+            }
+
+            /** @return int */
+            public function stderr($string)
+            {
+                $this->output .= $string;
+
+                return strlen($string);
+            }
+
+            protected function runQueue(): void
+            {
+                ($this->runner)();
+            }
+        };
+        $controller->runner = fn() => $this->runJobs();
+        $controller->interactive = false;
+
+        foreach ($options as $name => $value) {
+            $controller->$name = $value;
+        }
+
+        return [$controller->actionIndex(), $controller->output];
     }
 }

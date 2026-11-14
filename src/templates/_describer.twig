@@ -2,27 +2,39 @@
  # The popup the browser's image model reports into while it describes images: the image being
  # described, its new description, progress and Stop. Included
  # where images can be described; cp.js opens it (a native <dialog>) when describing starts.
+ # With `inSidebar`, it belongs to the box in Craft's asset editor (_sidebar.twig), which updates
+ # itself afterwards instead of offering the suggestions page.
  #}
+{% set inSidebar = inSidebar ?? false %}
+{% set titleId = 'altmonitor-dialog-title' ~ (inSidebar ? '-' ~ random()) %}
 {% do view.registerTranslations('alt-monitor', [
     'Loading the image model…',
     'Starting the image model…',
+    'Starting the translation model…',
+    'Translating suggestions',
+    'Translating suggestion {done, number} of {total, number}…',
+    'Could not be translated.',
+    'Stopped: {translated, number} translated, {failed, number} could not be translated.',
+    'Done: {translated, number} translated, {failed, number} could not be translated.',
     'Stopping…',
     'Describing image {done, number} of {total, number}…',
     'Describing image {done, number}…',
+    'About {minutes, number} {minutes, plural, =1{minute} other{minutes}} left',
+    'Less than a minute left',
     'Image {number, number}',
-    'That one is already used. Looking for a different description (try {attempt, number})…',
-    'No new description found; it would repeat the current one.',
-    'Could not be described.',
-    'Done: {described, number} new, {same, number} unchanged, {failed, number} could not be described.',
-    'Stopped: {described, number} new, {same, number} unchanged, {failed, number} could not be described.',
+    'Already used. Trying a different description ({attempt, number})…',
+    'No new description found. It would repeat the current one.',
+    'Couldn’t describe this one.',
+    'Done: {described, number} new, {same, number} unchanged, {failed, number} failed.',
+    'Stopped: {described, number} new, {same, number} unchanged, {failed, number} failed.',
     'The image model could not be loaded: {message}',
-    'Describing stopped because of an error: {message}',
+    'Stopped because of an error: {message}',
     'Select at least one image.',
     'This browser can’t run the image model. Use a current version of Chrome, Edge, Firefox or Safari.',
 ]) %}
-<dialog class="altmonitor-dialog" data-altmonitor-describer data-config="{{ describer|json_encode }}" aria-labelledby="altmonitor-dialog-title">
+<dialog class="altmonitor-dialog" {{ inSidebar ? 'data-altmonitor-sidebar-describer' : 'data-altmonitor-describer' }} data-config="{{ describer|json_encode }}" aria-labelledby="{{ titleId }}">
     <div class="altmonitor-dialog-head">
-        <h2 id="altmonitor-dialog-title">{{ 'Describing images'|t('alt-monitor') }}</h2>
+        <h2 id="{{ titleId }}">{{ 'Describing images'|t('alt-monitor') }}</h2>
         <p class="light">{{ 'The AI looks at each image in your browser. Nothing is saved until you approve it.'|t('alt-monitor') }}</p>
     </div>
     <div class="altmonitor-dialog-body">
@@ -36,10 +48,13 @@
                 <div data-bar style="width: 0"></div>
             </div>
             <p class="altmonitor-dialog-status" data-status role="status" aria-live="polite"></p>
+            <p class="altmonitor-dialog-eta light" data-eta hidden></p>
         </div>
     </div>
     <div class="altmonitor-dialog-foot">
-        <a class="btn submit" data-review href="{{ url('alt-monitor/suggestions') }}" hidden>{{ 'Review suggestions'|t('alt-monitor') }}</a>
+        {% if not inSidebar %}
+            <a class="btn submit" data-review href="{{ url('alt-monitor/suggestions') }}" hidden>{{ 'Review suggestions'|t('alt-monitor') }}</a>
+        {% endif %}
         <button type="button" class="btn" data-close hidden>{{ 'Close'|t('alt-monitor') }}</button>
         <button type="button" class="btn" data-stop>{{ 'Stop'|t('alt-monitor') }}</button>
     </div>

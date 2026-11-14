@@ -19,8 +19,8 @@ enum ScanType: string
     {
         return match ($this) {
             self::FULL => Craft::t('alt-monitor', 'Full scan'),
-            self::INCREMENTAL => Craft::t('alt-monitor', 'Incremental scan'),
-            self::USAGE => Craft::t('alt-monitor', 'Content usage scan'),
+            self::INCREMENTAL => Craft::t('alt-monitor', 'Changes-only scan'),
+            self::USAGE => Craft::t('alt-monitor', 'Usage scan'),
         };
     }
 }

@@ -5,11 +5,12 @@
  # button. The numbers follow, and the detail most people never need sits in a collapsed section.
  #}
 {% set title = 'AltMonitor'|t('alt-monitor') %}
+{% set bodyClass = 'altmonitor-page' %}
 {% set selectedSubnavItem = 'dashboard' %}
 {% do view.registerAssetBundle('Tahadudhiya\\AltMonitor\\web\\assets\\cp\\CpAsset') %}
 {% do view.registerTranslations('alt-monitor', [
     '{type}: {scanned, number} of {total, number} ({progress}%)',
-    'Progress could not be loaded. Reload the page to try again.',
+    'Couldn’t load progress. Reload the page to try again.',
 ]) %}
 
 {% block actionButton %}
@@ -38,7 +39,7 @@
 
 {% block content %}
     {% set needAlt = stats.missing + stats.weak %}
-    {% set scanned = stats.audited > 0 %}
+    {% set scanned = stats.audited > 0 and (fullScanDone ?? true) %}
 
     {% if activeScan %}
         <div class="altmonitor-panel" data-altmonitor-scan id="altmonitor-active-scan" aria-live="polite">
@@ -48,10 +49,10 @@
             </div>
             <p class="light" data-progress-text>
                 {{ activeScan.status.value == 'queued'
-                    ? '{type} is waiting for the queue.'|t('alt-monitor', {type: activeScan.type.label()})
+                    ? '{type} is waiting to start.'|t('alt-monitor', {type: activeScan.type.label()})
                     : '{type}: {scanned, number} of {total, number} ({progress}%)'|t('alt-monitor', {type: activeScan.type.label(), scanned: activeScan.scannedAssets, total: activeScan.totalAssets, progress: (activeScan.progress() * 100)|round}) }}
             </p>
-            <p class="light">{{ 'You can leave this page; the scan keeps running.'|t('alt-monitor') }}</p>
+            <p class="light">{{ 'You can leave this page. The scan keeps running.'|t('alt-monitor') }}</p>
         </div>
     {% elseif latestScan and latestScan.status.value == 'failed' %}
         <p class="error with-icon" id="altmonitor-failed-scan">
@@ -60,7 +61,7 @@
     {% endif %}
 
     {# ---------- What to do next ---------- #}
-    <ol class="altmonitor-steps" aria-label="{{ 'How it works'|t('alt-monitor') }}">
+    <ol class="altmonitor-steps" data-altmonitor-refresh="steps" aria-label="{{ 'How it works'|t('alt-monitor') }}">
         <li class="altmonitor-step {{ scanned ? 'is-done' : 'is-current' }}">
             <span class="altmonitor-step-number" aria-hidden="true">1</span>
             <div class="altmonitor-step-body">
@@ -125,7 +126,7 @@
     {% if scanned %}
         {# ---------- Where things stand ---------- #}
         {% set coverage = stats.coverage() %}
-        <div class="altmonitor-panel">
+        <div class="altmonitor-panel" data-altmonitor-refresh="coverage">
             <div class="altmonitor-coverage">
                 <h2>{{ 'Alt text coverage'|t('alt-monitor') }}</h2>
                 <strong class="altmonitor-coverage-value">{{ coverage is not null ? coverage ~ '%' : '—' }}</strong>
@@ -146,18 +147,18 @@
             <summary>{{ 'More details'|t('alt-monitor') }}</summary>
             <div class="altmonitor-cards">
                 {{ _self.card(stats.totalImages|number, 'Image assets'|t('alt-monitor'), null) }}
-                {{ _self.card(stats.updated|number, 'Images updated here'|t('alt-monitor'), null) }}
+                {{ _self.card(stats.updated|number, 'Images fixed in AltMonitor'|t('alt-monitor'), null) }}
                 {{ _self.card(stats.decorative|number, 'Marked decorative'|t('alt-monitor'), null) }}
                 {{ _self.card(stats.used|number, 'Used in content'|t('alt-monitor'), url('alt-monitor/images', {usage: 'used'})) }}
-                {{ _self.card(stats.unused|number, 'No references found'|t('alt-monitor'), url('alt-monitor/images', {usage: 'unused'})) }}
-                {{ _self.card(stats.usageUnknown|number, 'Usage not scanned'|t('alt-monitor'), url('alt-monitor/images', {usage: 'unknown'})) }}
+                {{ _self.card(stats.unused|number, 'Not found in content'|t('alt-monitor'), url('alt-monitor/images', {usage: 'unused'})) }}
+                {{ _self.card(stats.usageUnknown|number, 'Usage not checked'|t('alt-monitor'), url('alt-monitor/images', {usage: 'unknown'})) }}
             </div>
             <dl class="meta" id="altmonitor-scan-info">
                 <div class="data">
-                    <dt class="heading">{{ 'Last asset scan'|t('alt-monitor') }}</dt>
+                    <dt class="heading">{{ 'Last image scan'|t('alt-monitor') }}</dt>
                     <dd class="value">
                         {% if lastScan %}
-                            {{ '{type}, completed {date}: {scanned, number} {scanned, plural, =1{image} other{images}} read.'|t('alt-monitor', {type: lastScan.type.label(), date: lastScan.completedAt|datetime('short'), scanned: lastScan.scannedAssets}) }}
+                            {{ '{type}, finished {date}: {scanned, number} {scanned, plural, =1{image} other{images}} checked.'|t('alt-monitor', {type: lastScan.type.label(), date: lastScan.completedAt|datetime('short'), scanned: lastScan.scannedAssets}) }}
                         {% else %}
                             {{ 'Never'|t('alt-monitor') }}
                         {% endif %}
@@ -171,8 +172,8 @@
                     <dt class="heading">{{ 'Suggestions'|t('alt-monitor') }}</dt>
                     <dd class="value">
                         {{ serverAi
-                            ? 'Described from each image on the server by “{model}” through Ollama.'|t('alt-monitor', {model: aiModel})
-                            : 'Described from each image by {model}, free, in your browser.'|t('alt-monitor', {model: aiModel}) }}
+                            ? 'Written by “{model}” (Ollama) on the server, from the image itself.'|t('alt-monitor', {model: aiModel})
+                            : 'Written by {model} from the image itself, free, in your browser.'|t('alt-monitor', {model: aiModel}) }}
                         {% if describer %}<a href="{{ url('alt-monitor/image-model') }}">{{ 'About the image model'|t('alt-monitor') }}</a>{% endif %}
                     </dd>
                 </div>
@@ -183,16 +184,16 @@
                     {{ actionInput('alt-monitor/scan/start') }}
                     <button type="submit" class="btn" name="type" value="full" {{ activeScan ? 'disabled' }}>{{ 'Full scan'|t('alt-monitor') }}</button>
                     <span class="light">{{ 'Check every image again.'|t('alt-monitor') }}</span>
-                    <button type="submit" class="btn" name="type" value="usage" {{ activeScan ? 'disabled' }}>{{ 'Scan usage'|t('alt-monitor') }}</button>
+                    <button type="submit" class="btn" name="type" value="usage" {{ activeScan ? 'disabled' }}>{{ 'Find where used'|t('alt-monitor') }}</button>
                     <span class="light">{{ 'Find where each image is used in content.'|t('alt-monitor') }}</span>
                 </form>
             {% endif %}
             <p class="light">
-                {{ 'Usage counts Craft relations (Assets fields, including in Matrix and other nested content and global sets) and images embedded in rich text. Images used only in templates, custom code or other systems are not found, so “no references found” does not prove an image is unused.'|t('alt-monitor') }}
+                {{ 'Usage counts images in Assets fields (including Matrix, nested content and global sets) and in rich text. It can’t see templates, custom code or other systems, so “not found in content” doesn’t prove an image is unused.'|t('alt-monitor') }}
             </p>
             <p class="light">
-                {{ 'Statuses come from rule-based checks. They point at likely problems; they don’t prove alt text is accurate or that pages meet WCAG.'|t('alt-monitor') }}
-                {% if stats.audited > stats.totalImages %}{{ 'Images in volumes with translatable alt text are audited once per site.'|t('alt-monitor') }}{% endif %}
+                {{ 'Statuses come from automatic checks. They point out likely problems, but can’t prove alt text is right or that pages meet WCAG.'|t('alt-monitor') }}
+                {% if stats.audited > stats.totalImages %}{{ 'Images with translatable alt text are checked once per site.'|t('alt-monitor') }}{% endif %}
             </p>
         </details>
     {% endif %}

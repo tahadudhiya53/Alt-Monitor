@@ -28,6 +28,12 @@ class SuggestionsController extends Controller
 {
     use RequestInput;
 
+    /** Texts sent to the browser to avoid repeating: longer ones can't be a repeated description. */
+    private const KNOWN_MAX_LENGTH = 250;
+
+    /** The most the X-AltMonitor-Known header may take, well inside nginx's default 4 KB buffer. */
+    private const KNOWN_MAX_BYTES = 3000;
+
     public function beforeAction($action): bool
     {
         if (!parent::beforeAction($action)) {
@@ -57,13 +63,14 @@ class SuggestionsController extends Controller
         return $this->renderTemplate('alt-monitor/suggestions/_index', [
             'criteria' => $criteria,
             'page' => $plugin->getSuggestions()->page($criteria, $plugin->getAudits()->viewableVolumeIds($this->user()), $this->user()),
-            'pendingCount' => $plugin->getSuggestions()->count(SuggestionStatus::PENDING, $plugin->getAudits()->viewableVolumeIds($this->user())),
+            'pendingCount' => $plugin->getSuggestions()->count(SuggestionStatus::PENDING, $plugin->getAudits()->viewableVolumeIds($this->user()), $this->user()),
             'sources' => SuggestionSource::cases(),
             'suggestionStatuses' => SuggestionStatus::cases(),
             'failures' => $this->failures(),
             'canApprove' => $user->checkPermission(AltMonitor::PERMISSION_APPROVE),
             'canGenerate' => $user->checkPermission(AltMonitor::PERMISSION_GENERATE),
             'canEditAlt' => $user->checkPermission(AltMonitor::PERMISSION_EDIT_ALT),
+            'translator' => $plugin->getAiProviders()->translatorConfig(),
         ]);
     }
 
@@ -92,7 +99,7 @@ class SuggestionsController extends Controller
         // The image's status after saving, so a list can update its row without reloading.
         $status = $plugin->getAudits()->item($suggestion->assetId, $suggestion->siteId, $this->user())?->status;
 
-        return $this->asSuccess(Craft::t('alt-monitor', 'Suggestion approved and saved to the image.'), [
+        return $this->asSuccess(Craft::t('alt-monitor', 'Approved and saved to the image.'), [
             'status' => $status ? ['value' => $status->value, 'label' => $status->label(), 'color' => $status->color()] : null,
         ]);
     }
@@ -176,11 +183,18 @@ class SuggestionsController extends Controller
             throw new BadRequestHttpException($exception->getMessage(), 0, $exception);
         }
 
-        // What the image already has, so describing it again looks for something new.
+        // What the image already has, so describing it again looks for something new. Descriptions
+        // are short, so longer texts can't repeat and are left out, keeping the header small
+        // enough for nginx's default buffers whatever the language.
         $known = array_values(array_unique(array_filter([
             (string)$asset->alt,
             (string)AltMonitor::getInstance()->getSuggestions()->get((int)$asset->id, (int)$asset->siteId)?->suggestedAlt,
-        ])));
+        ], static fn(string $text): bool => $text !== '' && mb_strlen($text) <= self::KNOWN_MAX_LENGTH)));
+        $knownHeader = rawurlencode((string)json_encode($known, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+        if (strlen($knownHeader) > self::KNOWN_MAX_BYTES) {
+            $knownHeader = rawurlencode((string)json_encode(array_slice($known, 0, 1), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        }
 
         $response = $this->response;
         $response->format = Response::FORMAT_RAW;
@@ -190,7 +204,7 @@ class SuggestionsController extends Controller
             ->set('Cache-Control', 'private, no-store')
             ->set('X-Content-Type-Options', 'nosniff')
             // Header values must be ASCII: the JSON is URL-encoded.
-            ->set('X-AltMonitor-Known', rawurlencode((string)json_encode($known)))
+            ->set('X-AltMonitor-Known', $knownHeader)
             ->set('X-AltMonitor-Name', rawurlencode((string)$asset->getFilename()));
 
         return $response;
@@ -212,13 +226,18 @@ class SuggestionsController extends Controller
             throw new BadRequestHttpException('The “after” parameter must be a whole number.');
         }
 
-        $rows = $plugin->getAudits()->needingSuggestions((int)$after, 10, $plugin->getAudits()->viewableVolumeIds($this->user()));
+        $volumeIds = $plugin->getAudits()->viewableVolumeIds($this->user());
+        $rows = $plugin->getAudits()->needingSuggestions((int)$after, 10, $volumeIds, $this->user());
 
-        return $this->asJson(['images' => array_map(static fn(array $row): array => [
-            'auditId' => $row['id'],
-            'assetId' => $row['assetId'],
-            'siteId' => $row['siteId'],
-        ], $rows)]);
+        return $this->asJson([
+            'images' => array_map(static fn(array $row): array => [
+                'auditId' => $row['id'],
+                'assetId' => $row['assetId'],
+                'siteId' => $row['siteId'],
+            ], $rows),
+            // With the first batch: how many there are, for progress and the time left.
+            'total' => $after === '0' ? $plugin->getAudits()->countNeedingSuggestions($volumeIds, $this->user()) : null,
+        ]);
     }
 
     /**
@@ -230,7 +249,7 @@ class SuggestionsController extends Controller
         $this->requirePermission(AltMonitor::PERMISSION_GENERATE);
 
         try {
-            $suggestion = AltMonitor::getInstance()->getSuggestions()->storeDescription($this->positiveInt('assetId'), $this->positiveInt('siteId'), $this->text('text'), $this->user());
+            $suggestion = AltMonitor::getInstance()->getSuggestions()->storeDescription($this->positiveInt('assetId'), $this->positiveInt('siteId'), $this->text('text'), $this->user(), (bool)$this->request->getBodyParam('translated'));
         } catch (AltTextException $exception) {
             return $this->asFailure($exception->getMessage());
         }
@@ -243,6 +262,26 @@ class SuggestionsController extends Controller
             'id' => $suggestion->id,
             'text' => $suggestion->suggestedAlt,
             'status' => $suggestion->status->value,
+        ]]);
+    }
+
+    /**
+     * Replaces an English suggestion with the translation the browser made of it.
+     */
+    public function actionTranslate(): ?Response
+    {
+        $this->requirePostRequest();
+        $this->requirePermission(AltMonitor::PERMISSION_GENERATE);
+
+        try {
+            $suggestion = AltMonitor::getInstance()->getSuggestions()->storeTranslation($this->positiveInt('id'), $this->text('text'), $this->user());
+        } catch (AltTextException $exception) {
+            return $this->asFailure($exception->getMessage());
+        }
+
+        return $this->asSuccess(Craft::t('alt-monitor', 'Suggestion translated.'), ['suggestion' => [
+            'id' => $suggestion->id,
+            'text' => $suggestion->suggestedAlt,
         ]]);
     }
 
@@ -267,10 +306,10 @@ class SuggestionsController extends Controller
         }
 
         if ($plugin->getSuggestions()->queue([[(int)$asset->id, (int)$asset->siteId]]) === 0) {
-            return $this->asFailure(Craft::t('alt-monitor', 'A suggestion for this image is already being generated.'));
+            return $this->asFailure(Craft::t('alt-monitor', 'A suggestion for this image is already being made.'));
         }
 
-        return $this->asSuccess(Craft::t('alt-monitor', 'A new suggestion is being generated.'));
+        return $this->asSuccess(Craft::t('alt-monitor', 'Making a new suggestion.'));
     }
 
     /**
@@ -288,26 +327,12 @@ class SuggestionsController extends Controller
         $plugin = AltMonitor::getInstance();
         $plugin->getSuggestions()->queueForAllWanting($plugin->getAudits()->viewableVolumeIds($this->user()));
 
-        return $this->asSuccess(Craft::t('alt-monitor', 'Suggestions are being generated for images with missing or weak alt text.'));
+        return $this->asSuccess(Craft::t('alt-monitor', 'Making suggestions for images with missing or weak alt text.'));
     }
 
     /** Why the server didn't generate: that happens in the browser, which needs JavaScript. */
     public static function inBrowserMessage(): string
     {
-        return Craft::t('alt-monitor', 'Suggestions are described from the image in your browser. Use the Describe buttons, which need JavaScript.');
-    }
-
-    /**
-     * @throws BadRequestHttpException
-     */
-    private function queryInt(string $name): int
-    {
-        $value = $this->request->getQueryParam($name);
-
-        if (!is_string($value) || !preg_match('/^[1-9]\d{0,9}$/', $value)) {
-            throw new BadRequestHttpException("The “{$name}” parameter must be a positive whole number.");
-        }
-
-        return (int)$value;
+        return Craft::t('alt-monitor', 'Suggestions are made in your browser. Use the Describe buttons (they need JavaScript).');
     }
 }
