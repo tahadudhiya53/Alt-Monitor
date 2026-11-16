@@ -141,6 +141,9 @@ class Install extends Migration
             // No foreign key: a deleted field only means the next usage scan finds nothing there.
             'fieldId' => $this->integer(),
             'kind' => $this->string(16)->notNull(),
+            // For an image embedded in text (an <img> tag): whether the content gives it alt text.
+            // Empty for Assets fields and for links to the image. Never the text itself.
+            'altInContent' => $this->boolean(),
             'dateCreated' => $this->dateTime()->notNull(),
             'dateUpdated' => $this->dateTime()->notNull(),
             'uid' => $this->uid(),

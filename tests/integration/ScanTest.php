@@ -19,6 +19,7 @@ use Tahadudhiya\AltMonitor\errors\ScanInProgressException;
 use Tahadudhiya\AltMonitor\jobs\ScanAssetsJob;
 use Tahadudhiya\AltMonitor\records\AuditRecord;
 use Tahadudhiya\AltMonitor\records\ScanRecord;
+use Tahadudhiya\AltMonitor\records\UsageRecord;
 use Tahadudhiya\AltMonitor\services\AssetScanner;
 use Tahadudhiya\AltMonitor\Tests\_support\AltMonitorFixture;
 use Tahadudhiya\AltMonitor\widgets\CoverageWidget;
@@ -297,6 +298,63 @@ class ScanTest extends TestCase
         self::assertSame([], $byKind($related));
         self::assertSame(UsageStatus::UNUSED->value, $usageOf($related));
         self::assertCount(1, $byKind($nested));
+    }
+
+    /**
+     * @return array<int, bool|null> Whether the content gives each image alt text, by asset ID, as stored for the primary site
+     *         (or all sites, for an Assets field that isn't translated).
+     */
+    private static function altInContent(Asset ...$assets): array
+    {
+        $rows = (new Query())
+            ->select(['assetId', 'altInContent'])
+            ->from(UsageRecord::TABLE)
+            ->where(['assetId' => array_map(static fn(Asset $asset): int => (int)$asset->id, $assets), 'sourceSiteId' => [self::$primarySiteId, null]])
+            ->all();
+
+        return array_map(static fn(?string $value): ?bool => $value === null ? null : (bool)$value, array_column($rows, 'altInContent', 'assetId'));
+    }
+
+    public function testTheUsageScanRecordsWhetherTextGivesEmbeddedImagesAltText(): void
+    {
+        $noAlt = self::savedImage('embedded-no-alt.png', 'A harbour at dawn');
+        $withAlt = self::savedImage('embedded-alt.png', 'A red bicycle');
+        $twice = self::savedImage('embedded-twice.png');
+        $linked = self::savedImage('linked.png');
+        $related = self::savedImage('related-only.png');
+        $body = <<<HTML
+            <p><img src="{asset:{$noAlt->id}:url||https://example.test/a.png}"></p>
+            <figure><img alt="A bike leaning on a wall" src="{asset:{$withAlt->id}:transform:large||https://example.test/b.png}"></figure>
+            <img src="{asset:{$twice->id}:url}" alt="Shown once with text"><img src="{asset:{$twice->id}:url}" alt=" ">
+            <a href="{asset:{$linked->id}:url}">Download the photo</a>
+            HTML;
+        $page = self::savedEntry('Embedded images', [self::IMAGES => [$related->id], self::BODY => $body]);
+
+        $this->scan(ScanType::FULL);
+
+        // Stored as yes or no for <img> tags (any tag without text counts), nothing for links and fields.
+        self::assertSame([(int)$noAlt->id => false, (int)$withAlt->id => true, (int)$twice->id => false, (int)$linked->id => null, (int)$related->id => null], self::altInContent($noAlt, $withAlt, $twice, $linked, $related) + [(int)$related->id => 'not recorded']);
+
+        // The image page reads what the text says now, not what the scan stored.
+        $references = static fn(Asset $asset): array => self::plugin()->getContentUsage()->references((int)$asset->id);
+        self::assertSame([''], $references($noAlt)[0]->contentAlts);
+        self::assertTrue($references($noAlt)[0]->hasNoAltInContent());
+        self::assertSame(['A bike leaning on a wall'], $references($withAlt)[0]->otherAltsInContent('A red bicycle'));
+        self::assertSame([], $references($withAlt)[0]->otherAltsInContent('a bike leaning on a wall.'));
+        self::assertSame(['Shown once with text', ''], $references($twice)[0]->contentAlts);
+        self::assertNull($references($linked)[0]->contentAlts);
+        self::assertNull($references($related)[0]->contentAlts);
+
+        // Fixed in the content: the image page shows it at once, the stored answer at the next usage scan.
+        $page = \craft\elements\Entry::find()->id($page->id)->siteId(self::$primarySiteId)->one();
+        self::assertNotNull($page);
+        $page->setFieldValue(self::BODY, str_replace('<p><img src', '<p><img alt="Boats in a harbour" src', $body));
+        self::assertTrue(Craft::$app->getElements()->saveElement($page));
+        self::assertSame(['Boats in a harbour'], $references($noAlt)[0]->contentAlts);
+        self::assertFalse(self::altInContent($noAlt)[(int)$noAlt->id]);
+
+        $this->scan(ScanType::USAGE);
+        self::assertTrue(self::altInContent($noAlt)[(int)$noAlt->id]);
     }
 
     public function testImagesScannedSinceTheLastUsageScanHaveUnknownUsage(): void

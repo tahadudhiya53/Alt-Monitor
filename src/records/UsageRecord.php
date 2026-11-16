@@ -14,6 +14,7 @@ use craft\db\ActiveRecord;
  * @property int|null $sourceSiteId
  * @property int|null $fieldId
  * @property string $kind
+ * @property bool|null $altInContent
  * @property string $dateCreated
  * @property string $dateUpdated
  * @property string $uid

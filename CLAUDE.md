@@ -201,7 +201,11 @@ tests/
 - `altmonitor_suggestions` — one current suggestion per (asset, site); regenerating replaces it.
   Status `queued` doubles as the duplicate-generation reservation (expires after an hour).
 - `altmonitor_usages` — one row per (asset, source element, source site, field, kind), keyed by a
-  hash; rows not refreshed by a usage scan are pruned by `dateUpdated`.
+  hash; rows not refreshed by a usage scan are pruned by `dateUpdated`. `altInContent` (nullable
+  boolean): for reference tags inside `<img src>`, whether every such tag in that content gives
+  alt text; null for relations and links. Only yes/no, never the text. Added to `Install` (no new
+  migration before release); an existing dev install gets it with a plain `addColumn`, not a
+  reinstall, which would lose audits and suggestions.
 - `altmonitor_scans` — scan runs, progress and the totals at completion.
 - FKs cascade from `elements`, `sites`, `volumes`, so hard deletes need no code. Alt text is never
   copied into these tables.

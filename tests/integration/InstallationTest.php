@@ -167,5 +167,11 @@ class InstallationTest extends TestCase
         self::assertNotNull($audits);
         self::assertSame(['id', 'assetId', 'siteId', 'volumeId', 'scanId', 'altStatus', 'issues', 'decorative', 'usageStatus', 'altHash', 'dateScanned', 'dateAltSaved', 'dateCreated', 'dateUpdated', 'uid'], $audits->getColumnNames());
         self::assertCount(4, $audits->foreignKeys);
+
+        $usages = $schema->getTableSchema(UsageRecord::TABLE);
+        self::assertNotNull($usages);
+        self::assertSame(['id', 'usageKey', 'assetId', 'sourceElementId', 'sourceSiteId', 'fieldId', 'kind', 'altInContent', 'dateCreated', 'dateUpdated', 'uid'], $usages->getColumnNames());
+        // Empty for Assets fields and links: only <img> tags in text have an answer.
+        self::assertTrue($usages->getColumn('altInContent')?->allowNull);
     }
 }

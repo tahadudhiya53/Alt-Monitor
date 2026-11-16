@@ -153,6 +153,7 @@
                     <th scope="col">{{ 'Type'|t('alt-monitor') }}</th>
                     <th scope="col">{{ 'How'|t('alt-monitor') }}</th>
                     <th scope="col">{{ 'Field'|t('alt-monitor') }}</th>
+                    <th scope="col">{{ 'Alt text there'|t('alt-monitor') }}</th>
                     {% if craft.app.isMultiSite %}<th scope="col">{{ 'Site'|t('app') }}</th>{% endif %}
                 </tr>
             </thead>
@@ -166,6 +167,22 @@
                         <td>{{ reference.elementType }}</td>
                         <td>{{ reference.kind.label() }}</td>
                         <td>{{ reference.fieldName ? reference.fieldName|t('site') : '—' }}</td>
+                        <td data-content-alt>
+                            {# Images embedded in text keep the alt text they were inserted with, read here from the content as it is now. #}
+                            {% if reference.contentAlts is null %}
+                                <span class="light" title="{{ 'Uses the image’s own alt text.'|t('alt-monitor') }}">—</span>
+                            {% else %}
+                                {% set others = reference.otherAltsInContent(asset.alt) %}
+                                {% if reference.hasNoAltInContent() and not item.decorative %}
+                                    <span class="status-label red" data-content-alt-state="none"><span class="status"></span><span class="status-label-text">{{ 'None in the text'|t('alt-monitor') }}</span></span>
+                                {% endif %}
+                                {% if others %}
+                                    <div data-content-alt-state="different">{{ 'Different here:'|t('alt-monitor') }} {% for alt in others %}“{{ alt }}”{{ not loop.last ? ', ' }}{% endfor %}</div>
+                                {% elseif not reference.hasNoAltInContent() or item.decorative %}
+                                    <span class="light" data-content-alt-state="same">{{ item.decorative and reference.hasNoAltInContent() ? 'Empty, as the image is decorative'|t('alt-monitor') : 'Same as the image'|t('alt-monitor') }}</span>
+                                {% endif %}
+                            {% endif %}
+                        </td>
                         {% if craft.app.isMultiSite %}<td>{{ reference.siteName ? reference.siteName|t('site') : 'All sites'|t('alt-monitor') }}</td>{% endif %}
                     </tr>
                 {% endfor %}

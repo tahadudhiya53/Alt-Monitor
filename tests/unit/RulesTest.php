@@ -11,13 +11,15 @@ use Tahadudhiya\AltMonitor\models\ImageContext;
 use Tahadudhiya\AltMonitor\models\Settings;
 use Tahadudhiya\AltMonitor\services\AltTextAnalyzer;
 use Tahadudhiya\AltMonitor\services\AltTextEditor;
+use Tahadudhiya\AltMonitor\services\ContentUsageScanner;
 use Tahadudhiya\AltMonitor\services\ImageExport;
 use Tahadudhiya\AltMonitor\services\SuggestionGenerator;
 use Tahadudhiya\AltMonitor\services\TemplateCheck;
 
 /**
  * The rule-based checks and suggestions: what counts as missing, weak, good or worth a review,
- * and what a suggestion can be built from. Also the template check's reading of rendered pages.
+ * and what a suggestion can be built from. Also the template check's reading of rendered pages,
+ * and the alt text images embedded in content are given there.
  */
 class RulesTest extends TestCase
 {
@@ -254,5 +256,36 @@ class RulesTest extends TestCase
     public function testTheTemplateCheckIsOnByDefault(): void
     {
         self::assertTrue((new Settings())->templateCheck);
+    }
+
+    /**
+     * @return iterable<string, array{string, array<int, list<string>>}>
+     */
+    public static function embeddedImages(): iterable
+    {
+        yield 'no alt attribute' => ['<img src="{asset:5:url}">', [5 => ['']]];
+        yield 'empty alt' => ['<img src="{asset:5:url}" alt="">', [5 => ['']]];
+        yield 'only spaces' => ['<img src="{asset:5:url}" alt=" &nbsp; ">', [5 => ['']]];
+        yield 'alt text, entities decoded, spaces collapsed' => ['<img alt="Fish &amp;  chips" src="{asset:5:url||https://x.test/a.jpg}">', [5 => ['Fish & chips']]];
+        yield 'single quotes and a transform' => ["<img src='{asset:6:transform:hero||https://x.test/b.jpg}' alt='A bridge'>", [6 => ['A bridge']]];
+        yield 'bare values, upper case' => ['<IMG SRC={asset:7} ALT=Gulls>', [7 => ['Gulls']]];
+        yield 'a site in the tag' => ['<img src="{asset:8@2:url}" alt="Dunes">', [8 => ['Dunes']]];
+        yield 'self-closing' => ['<img src="{asset:9:url}" alt="Pier"/>', [9 => ['Pier']]];
+        yield 'alt only inside another value' => ['<img title="has alt=yes" src="{asset:5:url}">', [5 => ['']]];
+        yield 'the same image twice' => ['<img src="{asset:5}" alt="One"><img src="{asset:5}">', [5 => ['One', '']]];
+        yield 'a link to an image is not an image' => ['<a href="{asset:5:url}">Download</a>', []];
+        yield 'an image that is not an asset' => ['<img src="https://x.test/c.jpg">', []];
+        yield 'a reference tag elsewhere in the tag' => ['<img src="/c.jpg" data-x="{asset:5}">', []];
+    }
+
+    /**
+     * @param array<int, list<string>> $expected
+     */
+    #[DataProvider('embeddedImages')]
+    public function testTheAltTextEmbeddedImagesAreGivenInContentIsRead(string $html, array $expected): void
+    {
+        self::assertSame($expected, ContentUsageScanner::embeddedAlts("<p>$html</p>"));
+        // As Craft stores it: JSON whose text values hold the HTML, at any depth.
+        self::assertSame($expected, ContentUsageScanner::embeddedAlts((string)json_encode(['f1' => [1, 2], 'f2' => ['nested' => "<p>$html</p>"]])));
     }
 }

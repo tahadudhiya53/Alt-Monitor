@@ -298,6 +298,9 @@ metadata services. Check the licence of the model you choose.
 
 - Describing needs a person on the page (unless you use Ollama).
 - Usage scans can't see templates or custom code.
+- The rich text check reads `<img>` tags whose `src` is a Craft reference tag
+  (`{asset:123:url}`), as Craft's rich text fields store images. Images added by URL aren't
+  assets, so they aren't checked.
 - The template check reads the HTML a template rendered; images added later by JavaScript
   aren't checked.
 - The image model doesn't know names of people, brands or places.
