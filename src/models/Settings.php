@@ -56,6 +56,13 @@ class Settings extends Model
     /** Whether an image's audit is refreshed when the asset is saved, without waiting for a scan. */
     public bool $auditOnSave = true;
 
+    /**
+     * Whether an entry can't be published (saved enabled, in the control panel) while an image in
+     * it has no alt text. Images marked decorative are fine. The entry editor's box shows them
+     * either way.
+     */
+    public bool $requireAltToPublish = false;
+
     /** Whether a full scan goes on to scan content usage. */
     public bool $scanUsageAfterFullScan = true;
 
@@ -118,7 +125,7 @@ class Settings extends Model
             [['ollamaModel'], 'match', 'pattern' => '/^[a-z0-9][a-z0-9._\-\/]*(:[a-z0-9._\-]+)?$/i', 'message' => Craft::t('alt-monitor', 'Use only letters, numbers, “.”, “-”, “_” and “/”, plus an optional “:tag”.')],
             [['ollamaModel', 'browserModel'], 'string', 'max' => 100],
             [['browserModelHost', 'browserWasmPath'], 'url', 'validSchemes' => ['https', 'http']],
-            [['aiEnabled', 'auditOnSave', 'scanUsageAfterFullScan', 'suggestAfterScan', 'fallbackToRules'], 'boolean'],
+            [['aiEnabled', 'auditOnSave', 'requireAltToPublish', 'scanUsageAfterFullScan', 'suggestAfterScan', 'fallbackToRules'], 'boolean'],
             [['aiTimeout'], 'integer', 'min' => 10, 'max' => 600],
             [['scanBatchSize'], 'integer', 'min' => 10, 'max' => 1000],
             [['additionalGenericTerms', 'contextFieldHandles'], 'filter', 'filter' => [self::class, 'normalizeList']],

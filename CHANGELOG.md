@@ -21,6 +21,8 @@
 - Added extra generic words (Settings → Scanning & rules); the next full scan re-checks every image with them.
 - Added a warning before leaving a page with unsaved alt text.
 - Added an **Alt text check** box in Craft's asset editor sidebar, with **Use** and **Reject**.
+- Added an **Image alt text** box in Craft's entry editor sidebar: how many of the entry's images have missing or weak alt text, each with **Describe**, **Use** and **Edit image**. It reads the entry as it is being edited (Assets fields, Matrix, rich text) and updates after each autosave.
+- Added **Don’t publish entries with images missing alt text** (Settings → Scanning & rules, off by default), which stops saving an enabled entry and names the images at their fields.
 - Added an **Alt text status** column and filter to Craft's Assets index.
 - Added the **Alt text coverage** dashboard widget.
 - Added the `alt-monitor/scan` console command (`--full`, `--usage`, `--wait`).

@@ -15,7 +15,7 @@
     'altmonitor-tab-checks': {
         label: 'Scanning & rules'|t('alt-monitor'),
         url: '#altmonitor-tab-checks',
-        class: settings.hasErrors('scanBatchSize') or settings.hasErrors('auditOnSave') or settings.hasErrors('scanUsageAfterFullScan') or settings.hasErrors('additionalGenericTerms') ? 'error' : null,
+        class: settings.hasErrors('scanBatchSize') or settings.hasErrors('auditOnSave') or settings.hasErrors('requireAltToPublish') or settings.hasErrors('scanUsageAfterFullScan') or settings.hasErrors('additionalGenericTerms') ? 'error' : null,
     },
     'altmonitor-tab-languages': {
         label: 'Languages'|t('alt-monitor'),
@@ -86,6 +86,21 @@
             disabled: readOnly or 'scanBatchSize' in overrides,
             warning: 'scanBatchSize' in overrides ? overrideNote : null,
             errors: settings.getErrors('scanBatchSize'),
+        }) }}
+
+        <hr>
+        <h2>{{ 'Entries'|t('alt-monitor') }}</h2>
+        <p class="altmonitor-settings-text">{{ 'While someone edits an entry, a box beside it lists the entry’s images with missing or weak alt text.'|t('alt-monitor') }}</p>
+
+        {{ forms.lightswitchField({
+            label: 'Don’t publish entries with images missing alt text'|t('alt-monitor'),
+            instructions: 'Saving an enabled entry stops and names the images that need alt text. Images marked decorative are fine. Drafts and disabled entries can still be saved.'|t('alt-monitor'),
+            id: 'requireAltToPublish',
+            name: 'settings[requireAltToPublish]',
+            on: settings.requireAltToPublish,
+            disabled: readOnly or 'requireAltToPublish' in overrides,
+            warning: 'requireAltToPublish' in overrides ? overrideNote : null,
+            errors: settings.getErrors('requireAltToPublish'),
         }) }}
 
         <hr>

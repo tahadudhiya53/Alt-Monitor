@@ -45,6 +45,7 @@ Queue job (orchestration: one bounded batch, then push the next)
 | `suggestions` | `services/Suggestions` | Only writer of `altmonitor_suggestions`; reserve/queue, generate, approve, reject |
 | `altTextEditor` | `services/AltTextEditor` | The only code that writes alt text to an asset (`Elements::saveElement`) |
 | `assetsUi` | `services/AssetsUi` | Craft's own asset screens: the editor sidebar box (`_sidebar.twig`) and the Assets index column. Never writes |
+| `entryCheck` | `services/EntryCheck` | Craft's entry editor: the sidebar box (`_entry-sidebar.twig`) and the publish check. Reads the entry's images from its field values. Never writes |
 | `imageExport` | `services/ImageExport` | The Images list as CSV (`Audits::all()`: the list's query, every page, batches of 200). Never writes |
 | `aiProviders` | `services/AiProviders` | Builds the (Ollama) provider from settings; `EVENT_DEFINE_PROVIDER` lets code replace it; `browserConfig()` for the browser; `describerConfig()` (Describe buttons, null with Ollama) and `translatorConfig()` (Translate, also with Ollama) |
 
@@ -145,7 +146,7 @@ suggestions, 5 per job, TTR scaled by `aiTimeout`).
 
 Controllers: `Dashboard` (index, progress JSON), `Model` (the image model page), `Scan` (start),
 `Assets` (index, export, view, check, save, decorative, bulk: save / approve / generate, sidebar: the
-editor box's HTML again), `Suggestions` (index, approve, reject, bulk-approve, image, next, store,
+editor box's HTML again), `Entries` (sidebar: the entry box's HTML again), `Suggestions` (index, approve, reject, bulk-approve, image, next, store,
 translate, regenerate, generate-all), `Settings` (index, save, test-connection). Shared input reading in the
 `RequestInput` trait. Plugin class registers permissions, CP URL rules (the Image model nav item
 shows with the generate permission unless Ollama is on and no site needs a translation model),
@@ -178,7 +179,7 @@ src/
   records/                  one per table, schema only
   services/                 see table above
   widgets/                  CoverageWidget (Craft's dashboard)
-  templates/                _dashboard, _describer, _macros, _sidebar, _widget, images/{_index,_view}, model/_index, suggestions/_index, settings/_index
+  templates/                _dashboard, _describer, _entry-sidebar, _macros, _sidebar, _widget, images/{_index,_view}, model/_index, suggestions/_index, settings/_index
   translations/en/alt-monitor.php
   web/assets/cp/            CpAsset + dist/cp.css, cp.js, describe-worker.js, vendor/transformers.min.js (no build step)
 tests/
@@ -273,6 +274,42 @@ with shared alt text). The column (`altMonitorStatus`) reads a page's statuses i
 `cp.css` loads on Craft's asset pages too, so every rule is `.altmonitor-*`-prefixed; rules on
 Craft's own elements (`#header`…) are scoped to `body.altmonitor-page`, which every AltMonitor
 template sets as `bodyClass`.
+
+### Craft's entry editor
+
+`AltMonitor::registerEntryScreens()`: `Entry` `EVENT_DEFINE_SIDEBAR_HTML` appends
+`EntryCheck::sidebarHtml()` (`altMonitor:view` only, failures logged), and `EVENT_AFTER_VALIDATE`
+runs `EntryCheck::validate()` through `safely()`. **Images come from the element's field values,
+not `altmonitor_usages`** (which skips drafts and is only as fresh as the last scan): Assets
+relation fields (other relation fields are other content, skipped), `ElementContainerFieldInterface`
+fields (Matrix; cached posted entries first, else the query; rich text with entries via
+`Entry::find()->ownerId()->fieldId()`) recursed up to `MAX_DEPTH`, and `ContentUsageScanner::REFERENCE_TAG`
+over every other field's `serializeValue()`. Each image keeps its top-level field handle. Alt text is
+graded now with `AltTextAnalyzer` (decorative from the audit row), so unscanned images show too.
+The box counts missing + weak (`EntryImage::hasProblem()`), lists review too, and hides images the
+user may not view (`userMay`), counting them. **Use** approves (`suggestions/approve`, needs approve +
+`canSave` on the asset): there is no asset Alt Text field in an entry editor. **Edit image** opens
+`Craft.createElementEditor('craft\\elements\\Asset', …)` and refreshes on its `submit`.
+`cp.js` `entryBox()` binds once per editor to Craft's `afterSaveDraft` (the editor may initialise
+after the box, so `elementEditor()` is retried) and `refreshEntryBox()` GETs `entries/sidebar` with
+the editor's current `elementId` (the provisional draft after the first autosave); after an
+autosave the box is replaced only when `data-signature` changed and never while its dialog is
+open or a button is loading. The box key (`entry-<canonicalId>-<siteId>`) is what `pending.sidebar`
+uses to resume describing after the model download.
+
+**Publish check** (`requireAltToPublish`, CP-editable, default off): only when the setting is on,
+the element is an `Entry` in `SCENARIO_LIVE` (Craft sets it for enabled saves and applying drafts),
+not propagating/resaving/a revision/nested (`getPrimaryOwnerId()`; the owner checks its nested
+images), and the request is a CP request (console requests are never CP; don't use
+`getIsConsoleRequest()`, which is true for any CLI process, tests included). Only **missing** alt
+blocks; weak never does. One error per top-level field handle, so Craft shows it at the field and
+in its error summary.
+
+**Demo content:** `seed-alt-monitor-entries.php` in the host project root (`ddev exec php
+seed-alt-monitor-entries.php [--remove]`) creates 7 drawn images, a section and 4 entries; re-running
+resets them. Scripts that save project config outside a request must call
+`ProjectConfig::saveModifiedConfigData()`, and `savePluginSettings()` replaces the whole settings
+array: pass every setting, never just one.
 
 ## Craft-specific conventions
 

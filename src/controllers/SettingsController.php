@@ -25,7 +25,7 @@ class SettingsController extends Controller
     use RequestInput;
 
     /** The settings this page may change. */
-    private const EDITABLE = ['scanBatchSize', 'auditOnSave', 'scanUsageAfterFullScan', 'additionalGenericTerms', 'siteLanguages'];
+    private const EDITABLE = ['scanBatchSize', 'auditOnSave', 'requireAltToPublish', 'scanUsageAfterFullScan', 'additionalGenericTerms', 'siteLanguages'];
 
     public function beforeAction($action): bool
     {
@@ -209,7 +209,7 @@ class SettingsController extends Controller
             $values['scanBatchSize'] = is_numeric($values['scanBatchSize']) ? (int)$values['scanBatchSize'] : 0;
         }
 
-        foreach (['auditOnSave', 'scanUsageAfterFullScan'] as $name) {
+        foreach (['auditOnSave', 'requireAltToPublish', 'scanUsageAfterFullScan'] as $name) {
             if (array_key_exists($name, $values)) {
                 $values[$name] = (bool)$values[$name];
             }
