@@ -19,6 +19,8 @@ that runs in your browser. Nothing is saved until a person approves it.
   missing or weak alt text, and a setting can stop entries being published until they have it.
 - **Works in Craft's own screens.** A box in the asset editor, a column and a filter in the
   Assets index, and a dashboard widget.
+- **Helps your templates print it.** `{{ altText(asset) }}` prints the alt text, and in dev mode
+  the browser console names images a page prints without `alt`.
 
 ## Requirements
 
@@ -139,6 +141,31 @@ afterwards (Settings → Scanning).
 It can't see templates, custom code or other systems, so “Not found in content” doesn't prove an
 image is unused.
 
+
+## In your templates
+
+Alt text in Craft only helps if the template prints it. Use `altText()` on the `<img>` tag:
+
+```twig
+{% set image = entry.image.one() %}
+<img src="{{ image.url }}" {{ altText(image) }}>
+```
+
+It prints `alt="…"` with the image's alt text (escaped, on one line), or `alt=""` when the image
+is marked decorative in AltMonitor, so screen readers skip it. An image with no alt text, or no
+image at all, also gets `alt=""` rather than none, so screen readers don't read the file name.
+
+**Template check (dev mode only).** With Craft's `devMode` on, every front-end page is read after
+it is rendered, and the browser console warns about:
+
+- `<img>` tags with no `alt` attribute, listed one per line, and
+- images printed with `altText()` that have no alt text in Craft yet.
+
+Comments, scripts and styles are skipped, and only whole HTML pages are checked (not JSON, XML or
+page fragments loaded by Ajax). When nothing is wrong, the page is not changed. Outside dev mode
+the check never runs and `altText()` prints only the `alt` attribute. The warnings are an
+inline `<script>`, so a content security policy without `'unsafe-inline'` will block them. To
+turn the check off, set `'templateCheck' => false` in `config/alt-monitor.php`.
 ## Settings
 
 **AltMonitor → Settings** has two tabs. Settings are saved to project config, so they can only
@@ -186,6 +213,7 @@ Everything can also be set in `config/alt-monitor.php`, which overrides the cont
 | `suggestAfterScan` | `false` | Config file only. With Ollama, get suggestions after each scan |
 | `fallbackToRules` | `false` | Config file only. With Ollama, suggest from caption, title or file name when it fails |
 | `contextFieldHandles` | `['caption', 'description']` | Config file only. Fields that fallback may use |
+| `templateCheck` | `true` | Config file only. In dev mode, warn in the browser console about images without `alt` |
 
 ## Permissions
 
@@ -270,6 +298,8 @@ metadata services. Check the licence of the model you choose.
 
 - Describing needs a person on the page (unless you use Ollama).
 - Usage scans can't see templates or custom code.
+- The template check reads the HTML a template rendered; images added later by JavaScript
+  aren't checked.
 - The image model doesn't know names of people, brands or places.
 - Statuses are automatic checks, not a WCAG audit.
 

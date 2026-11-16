@@ -6,6 +6,8 @@ use Craft;
 use craft\base\Element;
 use craft\elements\Asset;
 use craft\elements\Entry;
+use craft\helpers\FileHelper;
+use craft\web\View;
 use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\Psr7\Request;
@@ -24,11 +26,13 @@ use Tahadudhiya\AltMonitor\enums\SuggestionStatus;
 use Tahadudhiya\AltMonitor\errors\AltTextException;
 use Tahadudhiya\AltMonitor\jobs\GenerateAltTextJob;
 use Tahadudhiya\AltMonitor\services\SuggestionGenerator;
+use Tahadudhiya\AltMonitor\services\TemplateCheck;
 use Tahadudhiya\AltMonitor\Tests\_support\AltMonitorFixture;
 
 /**
  * Suggestions and alt text editing end to end: rule-based and (mocked) AI generation, fallbacks,
- * duplicate prevention, approval onto the asset, bulk actions, and the pages showing them.
+ * duplicate prevention, approval onto the asset, bulk actions, and the pages showing them. Also
+ * the front end: the `altText()` Twig helper and the dev mode template check.
  */
 class SuggestionsTest extends TestCase
 {
@@ -1452,5 +1456,184 @@ class SuggestionsTest extends TestCase
         self::plugin()->getAudits()->setDecorative((int)$missing->id, self::$primarySiteId, true);
         self::plugin()->getAltTextEditor()->save((int)$nested->id, self::$primarySiteId, 'A blue water bottle', $this->signIn(true));
         self::assertTrue($live()->validate());
+    }
+
+    // The front end: altText() and the template check
+
+    /**
+     * Runs a test with dev mode and the template check set as given, then puts both back.
+     */
+    private static function withDevMode(bool $devMode, callable $test, bool $templateCheck = true): void
+    {
+        $general = Craft::$app->getConfig()->getGeneral();
+        $settings = self::plugin()->getSettings();
+        [$wasDevMode, $wasChecking] = [$general->devMode, $settings->templateCheck];
+        $general->devMode = $devMode;
+        $settings->templateCheck = $templateCheck;
+        self::plugin()->getTemplateCheck()->reset();
+
+        try {
+            $test();
+        } finally {
+            $general->devMode = $wasDevMode;
+            $settings->templateCheck = $wasChecking;
+            self::plugin()->getTemplateCheck()->reset();
+        }
+    }
+
+    private static function renderSite(string $template, array $variables = []): string
+    {
+        $view = Craft::$app->getView();
+        $mode = $view->getTemplateMode();
+        $view->setTemplateMode(View::TEMPLATE_MODE_SITE);
+
+        try {
+            return $view->renderString($template, $variables);
+        } finally {
+            $view->setTemplateMode($mode);
+        }
+    }
+
+    public function testAltTextPrintsTheAltTextOrAnEmptyAltForDecorativeImages(): void
+    {
+        $described = self::savedImage('dog.png', "A dog \"Rex\" <running>\n  on a beach & dunes");
+        $decorative = self::savedImage('divider.png', 'An old description');
+        $missing = self::savedImage('IMG_2001.png');
+        self::plugin()->getAudits()->setDecorative((int)$decorative->id, self::$primarySiteId, true);
+
+        self::withDevMode(false, function() use ($described, $decorative, $missing): void {
+            // Escaped once (not twice), on one line.
+            self::assertSame('<img alt="A dog &quot;Rex&quot; &lt;running&gt; on a beach &amp; dunes">', self::renderSite('<img {{ altText(asset) }}>', ['asset' => $described]));
+            // Decorative wins over any text it still has.
+            self::assertSame('<img alt="">', self::renderSite('<img {{ altText(asset) }}>', ['asset' => $decorative]));
+            // No alt text: alt="" so screen readers skip it, and nothing else outside dev mode.
+            self::assertSame('<img alt="">', self::renderSite('<img {{ altText(asset) }}>', ['asset' => $missing]));
+            // No asset (an empty field): still valid HTML, never an error.
+            self::assertSame('<img alt=""><img alt="">', self::renderSite('<img {{ altText(nothing ?? null) }}><img {{ altText("not an asset") }}>'));
+        });
+
+        self::withDevMode(true, function() use ($described, $decorative, $missing): void {
+            self::assertSame('alt="' . 'A dog &quot;Rex&quot; &lt;running&gt; on a beach &amp; dunes"', self::renderSite('{{ altText(asset) }}', ['asset' => $described]));
+            self::assertSame('alt=""', self::renderSite('{{ altText(asset) }}', ['asset' => $decorative]));
+            // In dev mode only, an image without alt text is marked so the check can name it.
+            self::assertSame('alt="" ' . TemplateCheck::NO_TEXT_MARKER . '="' . $missing->id . '"', self::renderSite('{{ altText(asset) }}', ['asset' => $missing]));
+            self::assertSame('alt="" ' . TemplateCheck::NO_TEXT_MARKER . '=""', self::renderSite('{{ altText(null) }}'));
+        });
+
+        // Turned off in the config file: no marker, even in dev mode.
+        self::withDevMode(true, function() use ($missing): void {
+            self::assertSame('alt=""', self::renderSite('{{ altText(asset) }}', ['asset' => $missing]));
+        }, templateCheck: false);
+    }
+
+    public function testAltTextFollowsWhereDecorativeIsSetForEachSite(): void
+    {
+        $otherSiteId = current(array_diff(Craft::$app->getSites()->getAllSiteIds(), [self::$primarySiteId]));
+
+        if ($otherSiteId === false) {
+            self::markTestSkipped('Needs a second site.');
+        }
+
+        $shared = self::savedImage('shared-divider.png', 'Shared text');
+        $translated = self::savedImage('translated-divider.png', 'Translated text', self::$translated);
+        $inSite = static fn(Asset $asset): Asset => Asset::find()->id($asset->id)->siteId($otherSiteId)->status(null)->one() ?? throw new \RuntimeException('Not in the other site.');
+        $check = self::plugin()->getTemplateCheck();
+
+        // Alt text shared by every site is audited (and marked decorative) in the primary site.
+        self::plugin()->getAudits()->setDecorative((int)$shared->id, self::$primarySiteId, true);
+        // Alt text per site: marked decorative in the other site only.
+        self::plugin()->getAssetScanner()->auditAsset($translated);
+        self::plugin()->getAudits()->setDecorative((int)$translated->id, (int)$otherSiteId, true);
+        $check->reset();
+
+        self::assertTrue($check->isDecorative($inSite($shared)));
+        self::assertSame('', $check->altText($inSite($shared)));
+        self::assertFalse($check->isDecorative($translated));
+        self::assertSame('Translated text', $check->altText($translated));
+        self::assertTrue($check->isDecorative($inSite($translated)));
+        self::assertSame('', $check->altText($inSite($translated)));
+    }
+
+    public function testInDevModeSitePagesWarnInTheConsoleAboutImagesWithoutAlt(): void
+    {
+        $missing = self::savedImage('IMG_2002.png');
+        $described = self::savedImage('cat.png', 'A cat asleep');
+        $templates = self::$root . '/templates';
+        FileHelper::createDirectory($templates);
+        file_put_contents($templates . '/altmonitor-page.twig', <<<'TWIG'
+            <!DOCTYPE html>
+            <html><head><title>Test</title></head><body>
+            <img src="/forgot.jpg">
+            <img src="/one.jpg" {{ altText(missing) }}>
+            <img src="/two.jpg" {{ altText(described) }}>
+            </body></html>
+            TWIG);
+        $variables = ['missing' => $missing, 'described' => $described];
+        $view = Craft::$app->getView();
+        $render = static function() use ($view, $templates, $variables): string {
+            $view->setTemplateMode(View::TEMPLATE_MODE_SITE);
+            $view->setTemplatesPath($templates);
+
+            try {
+                return $view->renderPageTemplate('altmonitor-page', $variables, View::TEMPLATE_MODE_SITE);
+            } finally {
+                $view->setTemplateMode(View::TEMPLATE_MODE_CP);
+            }
+        };
+
+        $this->useSiteRequest('/some-page');
+
+        self::withDevMode(true, function() use ($render, $missing): void {
+            $page = $render();
+
+            self::assertSame(2, substr_count($page, 'console.warn('));
+            self::assertStringContainsString('no alt attribute: 1.', $page);
+            self::assertStringContainsString('\/forgot.jpg', json_encode($page) ?: '');
+            self::assertStringContainsString('no alt text in Craft: 1.', $page);
+            self::assertStringContainsString(TemplateCheck::NO_TEXT_MARKER . '="' . $missing->id . '"', $page);
+            self::assertMatchesRegularExpression('/<\/script>\s*<\/body><\/html>\s*$/', $page);
+        });
+
+        // Outside dev mode the page is exactly what the template printed.
+        self::withDevMode(false, function() use ($render): void {
+            $page = $render();
+
+            self::assertStringNotContainsString('console.warn', $page);
+            self::assertStringNotContainsString('data-altmonitor', $page);
+            self::assertStringContainsString('<img src="/one.jpg" alt="">', $page);
+            self::assertStringContainsString('<img src="/two.jpg" alt="A cat asleep">', $page);
+        });
+
+        // Turned off in the config file.
+        self::withDevMode(true, function() use ($render): void {
+            self::assertStringNotContainsString('console.warn', $render());
+        }, templateCheck: false);
+    }
+
+    public function testTheTemplateCheckLeavesTheControlPanelConsoleAndNonHtmlTemplatesAlone(): void
+    {
+        $page = '<html><body><img src="/forgot.jpg"></body></html>';
+        $view = Craft::$app->getView();
+        $after = static function(string $template, string $mode) use ($view, $page): string {
+            $output = $page;
+            $view->afterRenderPageTemplate($template, [], $mode, $output);
+
+            return $output;
+        };
+
+        self::withDevMode(true, function() use ($after, $page): void {
+            // The test runner is a console request.
+            self::assertSame($page, $after('index', View::TEMPLATE_MODE_SITE));
+        });
+
+        $this->useSiteRequest('/');
+
+        self::withDevMode(true, function() use ($after, $page): void {
+            self::assertStringContainsString('console.warn(', $after('index', View::TEMPLATE_MODE_SITE));
+            self::assertStringContainsString('console.warn(', $after('blog/_entry.html', View::TEMPLATE_MODE_SITE));
+            self::assertSame($page, $after('index', View::TEMPLATE_MODE_CP));
+            self::assertSame($page, $after('feed.json', View::TEMPLATE_MODE_SITE));
+            self::assertSame($page, $after('sitemap.xml', View::TEMPLATE_MODE_SITE));
+        });
     }
 }

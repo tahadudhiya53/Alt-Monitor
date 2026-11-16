@@ -433,6 +433,13 @@ trait AltMonitorFixture
         $this->useWebRequest('POST', '/admin/actions/elements/save', []);
     }
 
+    /** Makes the current request a front-end (site) page request, until the test ends. */
+    protected function useSiteRequest(string $path = '/'): void
+    {
+        $this->useWebRequest('GET', $path, []);
+        Assert::assertTrue(Craft::$app->getRequest()->getIsSiteRequest());
+    }
+
     /**
      * @param array<string, string> $headers
      */

@@ -47,6 +47,7 @@ Queue job (orchestration: one bounded batch, then push the next)
 | `assetsUi` | `services/AssetsUi` | Craft's own asset screens: the editor sidebar box (`_sidebar.twig`) and the Assets index column. Never writes |
 | `entryCheck` | `services/EntryCheck` | Craft's entry editor: the sidebar box (`_entry-sidebar.twig`) and the publish check. Reads the entry's images from its field values. Never writes |
 | `imageExport` | `services/ImageExport` | The Images list as CSV (`Audits::all()`: the list's query, every page, batches of 200). Never writes |
+| `templateCheck` | `services/TemplateCheck` | The front end: `altAttribute()` behind the `altText()` Twig function (`web/twig/Extension`), and the dev mode check (`findProblems()`, `withWarnings()`: pure, static). Never writes |
 | `aiProviders` | `services/AiProviders` | Builds the (Ollama) provider from settings; `EVENT_DEFINE_PROVIDER` lets code replace it; `browserConfig()` for the browser; `describerConfig()` (Describe buttons, null with Ollama) and `translatorConfig()` (Translate, also with Ollama) |
 
 ### Describing images (default: in the browser)
@@ -181,6 +182,7 @@ src/
   widgets/                  CoverageWidget (Craft's dashboard)
   templates/                _dashboard, _describer, _entry-sidebar, _macros, _sidebar, _widget, images/{_index,_view}, model/_index, suggestions/_index, settings/_index
   translations/en/alt-monitor.php
+  web/twig/Extension.php    the altText() Twig function (site and CP templates)
   web/assets/cp/            CpAsset + dist/cp.css, cp.js, describe-worker.js, vendor/transformers.min.js (no build step)
 tests/
   unit/                     PluginTest, RulesTest, AiTest (no Craft app)
@@ -252,6 +254,22 @@ tests/
   stored.
 - **Flashes** are read only when a session exists (`RequestInput::failures()`), since the console
   app running tests has none.
+
+### Front-end templates
+
+`altText(asset)` (`TemplateCheck::altAttribute()`) returns `Markup`: `alt="…"` (alt text on one
+line, encoded once), or `alt=""` when the image is decorative (`isDecorative()`: every decorative
+audit read in one query per page render, matched on `AssetScanner::auditSiteId()`; reset before
+each page render and by `reset()`), so a page printing many images doesn't query per image. No alt text, or not an
+asset, also gives `alt=""` (never an error on a live page); in dev mode it adds
+`data-altmonitor-no-alt-text="<id>"` (`NO_TEXT_MARKER`) so the check can name it.
+`registerTemplateHelpers()` handles `View::EVENT_AFTER_RENDER_PAGE_TEMPLATE`; `appliesTo()` needs
+dev mode, `templateCheck` (config file only, not in `EDITABLE`), site template mode, a site
+request (`getIsSiteRequest()`, which is false for console requests; don't use
+`getIsConsoleRequest()`, true for any request under CLI, tests included), and a template whose
+extension is HTML or none. `withWarnings()` adds one `<script>` of `console.warn()` calls before
+the last `</body>` only when it finds a problem (JSON with `JSON_HEX_*`, so it can't close the
+script). Failures are logged, never break the page. Images added by JavaScript aren't seen.
 
 ### Craft's own asset screens
 
@@ -365,6 +383,9 @@ lock references).
   global set in one rolled-back transaction, a savepoint per test, project config never written
   to YAML, real PNGs created with GD in a temp dir. Pushed jobs are caught via
   `Queue::EVENT_AFTER_PUSH` and run with `runJobs()`.
+- Front-end checks use `useSiteRequest()` and `withDevMode()` (SuggestionsTest), which put
+  `devMode` and `templateCheck` back. On the DDEV host, `CRAFT_DEV_MODE` comes from `.env` and
+  overrides `general.php`; PHP-FPM workers keep the old value until reloaded.
 - Controllers run through `runAction()` with a real CSRF token; pages are checked by rendering
   their `content` block (`html()`), because the CP layout needs a web session.
 - Ollama is always mocked with Guzzle's `MockHandler` via `AiProviders::$httpHandler`.

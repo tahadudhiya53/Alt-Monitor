@@ -25,6 +25,8 @@
 - Added **Don’t publish entries with images missing alt text** (Settings → Scanning & rules, off by default), which stops saving an enabled entry and names the images at their fields.
 - Added an **Alt text status** column and filter to Craft's Assets index.
 - Added the **Alt text coverage** dashboard widget.
+- Added the `altText(asset)` Twig function, which prints an image's alt text as an `alt` attribute, or `alt=""` when it is marked decorative.
+- Added a template check for developers: in dev mode, site pages warn in the browser console about `<img>` tags with no `alt` attribute and images with no alt text in Craft. It never runs outside dev mode; `templateCheck` in `config/alt-monitor.php` turns it off.
 - Added the `alt-monitor/scan` console command (`--full`, `--usage`, `--wait`).
 - Added optional server-side suggestions with Ollama, set in `config/alt-monitor.php` only.
 - Added settings in two tabs, **Scanning & rules** (with how images are checked) and **Languages**, overridable from `config/alt-monitor.php`.

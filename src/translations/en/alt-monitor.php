@@ -488,4 +488,8 @@ return [
     '{count, plural, =1{1 other image is} other{# other images are}} fine.' => '{count, plural, =1{1 other image is} other{# other images are}} fine.',
     '{count, plural, =1{The image in this entry has} other{All # images in this entry have}} alt text.' => '{count, plural, =1{The image in this entry has} other{All # images in this entry have}} alt text.',
     '{count, plural, =1{This image has} other{These images have}} no alt text: {names}. Add alt text or mark {count, plural, =1{it} other{them}} decorative before publishing.' => '{count, plural, =1{This image has} other{These images have}} no alt text: {names}. Add alt text or mark {count, plural, =1{it} other{them}} decorative before publishing.',
+    // The template check (dev mode, browser console)
+    'Images on this page with no alt attribute: {count}. Screen readers read their file name instead. Print the alt text with {helper}, or add alt="" to images that are only decoration.' => 'Images on this page with no alt attribute: {count}. Screen readers read their file name instead. Print the alt text with {helper}, or add alt="" to images that are only decoration.',
+    'Images on this page with no alt text in Craft: {count}. Add it on the AltMonitor Images page, or mark the image as decorative there.' => 'Images on this page with no alt text in Craft: {count}. Add it on the AltMonitor Images page, or mark the image as decorative there.',
+    '…and {count} more.' => '…and {count} more.',
 ];
