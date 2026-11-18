@@ -36,6 +36,7 @@
                 {{ macros.altStatus(item.status) }}
                 {% if item.status.value != 'missing' %}{% for issue in item.issues %}<span class="light">{{ issue.label() }}</span>{% endfor %}{% endif %}
             </div>
+            {{ macros.otherChecks(item) }}
 
             {# ---------- The suggestion, ready to use ---------- #}
             {% if pending %}

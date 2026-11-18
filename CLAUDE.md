@@ -171,7 +171,7 @@ src/
   conditions/               AltStatusConditionRule (the Assets index filter)
   console/controllers/      ScanController (craft alt-monitor/scan)
   controllers/              CP controllers + RequestInput trait
-  enums/                    AltStatus, AltIssue, UsageStatus, UsageKind, ScanType, ScanStatus, SuggestionSource, SuggestionStatus
+  enums/                    AltStatus, AltIssue, ListCheck, UsageStatus, UsageKind, ScanType, ScanStatus, SuggestionSource, SuggestionStatus
   errors/                   AiProviderException, AltTextException, ScanInProgressException
   events/                   DefineAiProviderEvent
   jobs/                     BaseScanJob, ScanAssetsJob, ScanContentUsageJob, GenerateAltTextJob
@@ -197,7 +197,10 @@ tests/
 - `altmonitor_audits` — one row per (asset, site); unique `(assetId, siteId)`. `altStatus`,
   `issues` (comma-separated `AltIssue`s), `decorative` (set by people, kept by scans),
   `usageStatus`, `altHash` (sha1 of alt, filename, title, volume, decorative: unchanged rows are
-  only touched), `dateScanned` (used to prune after full scans), `dateAltSaved`.
+  only touched), `altKey` (sha1 of the alt text alone, `Audits::altKeyFor()`: spaces collapsed,
+  trimmed, lower case in PHP so every database groups alike; null without alt text; indexed with
+  `siteId`), `dateScanned` (used to prune after full scans), `dateAltSaved`. `decorative` is
+  indexed for `altText()`.
 - `altmonitor_suggestions` — one current suggestion per (asset, site); regenerating replaces it.
   Status `queued` doubles as the duplicate-generation reservation (expires after an hour).
 - `altmonitor_usages` — one row per (asset, source element, source site, field, kind), keyed by a

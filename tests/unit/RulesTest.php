@@ -11,6 +11,7 @@ use Tahadudhiya\AltMonitor\models\ImageContext;
 use Tahadudhiya\AltMonitor\models\Settings;
 use Tahadudhiya\AltMonitor\services\AltTextAnalyzer;
 use Tahadudhiya\AltMonitor\services\AltTextEditor;
+use Tahadudhiya\AltMonitor\services\Audits;
 use Tahadudhiya\AltMonitor\services\ContentUsageScanner;
 use Tahadudhiya\AltMonitor\services\ImageExport;
 use Tahadudhiya\AltMonitor\services\SuggestionGenerator;
@@ -287,5 +288,14 @@ class RulesTest extends TestCase
         self::assertSame($expected, ContentUsageScanner::embeddedAlts("<p>$html</p>"));
         // As Craft stores it: JSON whose text values hold the HTML, at any depth.
         self::assertSame($expected, ContentUsageScanner::embeddedAlts((string)json_encode(['f1' => [1, 2], 'f2' => ['nested' => "<p>$html</p>"]])));
+    }
+
+    public function testAltTextIsComparedIgnoringCaseAndSpacing(): void
+    {
+        self::assertSame(Audits::altKeyFor('Team photo'), Audits::altKeyFor("  TEAM \n photo\u{00A0}"));
+        self::assertSame(Audits::altKeyFor('Équipe'), Audits::altKeyFor('équipe'));
+        self::assertNotSame(Audits::altKeyFor('Team photo'), Audits::altKeyFor('Team photos'));
+        self::assertNull(Audits::altKeyFor(null));
+        self::assertNull(Audits::altKeyFor("  \n "));
     }
 }

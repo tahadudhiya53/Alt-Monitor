@@ -30,6 +30,10 @@ final class AuditItem
         public readonly DateTime $dateScanned,
         public readonly ?DateTime $dateAltSaved,
         public readonly bool $canEdit,
+        /** How many other images (that the viewer may see) have the same alt text in this site. */
+        public readonly int $sameAltCount = 0,
+        /** In how many pieces of content its `<img>` has no alt text, as last scanned. */
+        public readonly int $noAltInTextCount = 0,
     ) {
     }
 

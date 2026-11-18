@@ -8,6 +8,7 @@ use craft\web\Controller;
 use InvalidArgumentException;
 use Tahadudhiya\AltMonitor\AltMonitor;
 use Tahadudhiya\AltMonitor\enums\AltStatus;
+use Tahadudhiya\AltMonitor\enums\ListCheck;
 use Tahadudhiya\AltMonitor\enums\SuggestionStatus;
 use Tahadudhiya\AltMonitor\enums\UsageStatus;
 use Tahadudhiya\AltMonitor\errors\AltTextException;
@@ -66,6 +67,7 @@ class AssetsController extends Controller
             'statuses' => AltStatus::cases(),
             'usageStatuses' => UsageStatus::cases(),
             'suggestionStatuses' => SuggestionStatus::cases(),
+            'checks' => ListCheck::cases(),
             'failures' => $this->failures(),
             // For the empty list: a scan already on its way, rather than a button to start one.
             'activeScan' => $stats->audited === 0 ? AltMonitor::getInstance()->getScans()->active() : null,

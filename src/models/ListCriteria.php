@@ -5,6 +5,7 @@ namespace Tahadudhiya\AltMonitor\models;
 use Craft;
 use InvalidArgumentException;
 use Tahadudhiya\AltMonitor\enums\AltStatus;
+use Tahadudhiya\AltMonitor\enums\ListCheck;
 use Tahadudhiya\AltMonitor\enums\SuggestionSource;
 use Tahadudhiya\AltMonitor\enums\SuggestionStatus;
 use Tahadudhiya\AltMonitor\enums\UsageStatus;
@@ -33,6 +34,7 @@ final class ListCriteria
         public readonly ?int $volumeId = null,
         public readonly string $search = '',
         public readonly int $page = 1,
+        public readonly ?ListCheck $check = null,
     ) {
     }
 
@@ -90,6 +92,7 @@ final class ListCriteria
             volumeId: $volumeId === null ? null : (int)$volumeId,
             search: mb_substr(trim((string)$string('search')), 0, 255),
             page: (int)$page,
+            check: $enum('check', ListCheck::class),
         );
     }
 
@@ -110,6 +113,7 @@ final class ListCriteria
             self::SITE_PARAM => $this->siteId !== null ? Craft::$app->getSites()->getSiteById($this->siteId)?->handle : null,
             'volume' => $this->volumeId !== null ? Craft::$app->getVolumes()->getVolumeById($this->volumeId)?->handle : null,
             'search' => $this->search !== '' ? $this->search : null,
+            'check' => $this->check?->value,
             'page' => $this->page > 1 ? $this->page : null,
         ], $changes);
 

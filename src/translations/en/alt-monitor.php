@@ -492,10 +492,17 @@ return [
     'Images on this page with no alt attribute: {count}. Screen readers read their file name instead. Print the alt text with {helper}, or add alt="" to images that are only decoration.' => 'Images on this page with no alt attribute: {count}. Screen readers read their file name instead. Print the alt text with {helper}, or add alt="" to images that are only decoration.',
     'Images on this page with no alt text in Craft: {count}. Add it on the AltMonitor Images page, or mark the image as decorative there.' => 'Images on this page with no alt text in Craft: {count}. Add it on the AltMonitor Images page, or mark the image as decorative there.',
     '…and {count} more.' => '…and {count} more.',
+    // Pages, and checks beyond one image's alt text
+    'Same alt text as other images' => 'Same alt text as other images',
+    'No alt text where embedded in text' => 'No alt text where embedded in text',
+    'More checks' => 'More checks',
+    'Search file names, titles and alt text' => 'Search file names, titles and alt text',
     'Alt text there' => 'Alt text there',
     'Uses the image’s own alt text.' => 'Uses the image’s own alt text.',
     'None in the text' => 'None in the text',
     'Different here:' => 'Different here:',
     'Empty, as the image is decorative' => 'Empty, as the image is decorative',
     'Same as the image' => 'Same as the image',
+    'Same alt text as {count, number} other {count, plural, =1{image} other{images}}' => 'Same alt text as {count, number} other {count, plural, =1{image} other{images}}',
+    'No alt text where embedded in text ({count, number})' => 'No alt text where embedded in text ({count, number})',
 ];

@@ -165,7 +165,7 @@ class InstallationTest extends TestCase
 
         $audits = $schema->getTableSchema(AuditRecord::TABLE);
         self::assertNotNull($audits);
-        self::assertSame(['id', 'assetId', 'siteId', 'volumeId', 'scanId', 'altStatus', 'issues', 'decorative', 'usageStatus', 'altHash', 'dateScanned', 'dateAltSaved', 'dateCreated', 'dateUpdated', 'uid'], $audits->getColumnNames());
+        self::assertSame(['id', 'assetId', 'siteId', 'volumeId', 'scanId', 'altStatus', 'issues', 'decorative', 'usageStatus', 'altHash', 'altKey', 'dateScanned', 'dateAltSaved', 'dateCreated', 'dateUpdated', 'uid'], $audits->getColumnNames());
         self::assertCount(4, $audits->foreignKeys);
 
         $usages = $schema->getTableSchema(UsageRecord::TABLE);

@@ -82,6 +82,9 @@ class Install extends Migration
             // A hash of what the analysis read (alt text, file name, title), so an unchanged asset
             // is not analysed again and a suggestion can tell it is out of date.
             'altHash' => $this->char(40)->notNull(),
+            // A hash of the alt text alone, trimmed and in lower case, so images sharing alt text
+            // are found with an index. Empty when there is no alt text. Never the text itself.
+            'altKey' => $this->char(40),
             'dateScanned' => $this->dateTime()->notNull(),
             // When AltMonitor last saved the asset's alt text.
             'dateAltSaved' => $this->dateTime(),
@@ -94,6 +97,7 @@ class Install extends Migration
         $this->createIndex(null, AuditRecord::TABLE, ['altStatus', 'siteId']);
         $this->createIndex(null, AuditRecord::TABLE, ['usageStatus']);
         $this->createIndex(null, AuditRecord::TABLE, ['volumeId']);
+        $this->createIndex(null, AuditRecord::TABLE, ['siteId', 'altKey']);
         $this->createIndex(null, AuditRecord::TABLE, ['dateScanned']);
         $this->addForeignKey(null, AuditRecord::TABLE, ['assetId'], Table::ELEMENTS, ['id'], 'CASCADE');
         $this->addForeignKey(null, AuditRecord::TABLE, ['siteId'], Table::SITES, ['id'], 'CASCADE', 'CASCADE');

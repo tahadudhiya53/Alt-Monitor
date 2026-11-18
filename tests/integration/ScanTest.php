@@ -357,6 +357,26 @@ class ScanTest extends TestCase
         self::assertTrue(self::altInContent($noAlt)[(int)$noAlt->id]);
     }
 
+    public function testEachAuditKeepsAKeyOfItsAltTextForFindingImagesThatShareIt(): void
+    {
+        $first = self::savedImage('key-a.png', ' Team  Photo ');
+        $second = self::savedImage('key-b.png', 'team photo');
+        $none = self::savedImage('key-c.png');
+        $key = static fn(Asset $asset): ?string => self::audits($asset)[self::$primarySiteId]['altKey'] ?? null;
+
+        self::assertNotNull($key($first));
+        self::assertSame($key($first), $key($second));
+        self::assertNull($key($none));
+        // Only a hash: the alt text itself is never stored.
+        self::assertSame(40, strlen((string)$key($first)));
+
+        // Changed alt text changes the key when the image is saved.
+        $fresh = self::fresh($second);
+        $fresh->alt = 'A different photo';
+        self::assertTrue(Craft::$app->getElements()->saveElement($fresh));
+        self::assertNotSame($key($first), $key($second));
+    }
+
     public function testImagesScannedSinceTheLastUsageScanHaveUnknownUsage(): void
     {
         $this->scan(ScanType::FULL);

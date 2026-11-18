@@ -1458,6 +1458,59 @@ class SuggestionsTest extends TestCase
         self::assertTrue($live()->validate());
     }
 
+    public function testTheImageListFindsAltTextOtherImagesShare(): void
+    {
+        $first = self::savedImage('same-alt-a.png', 'Team photo');
+        $second = self::savedImage('same-alt-b.png', ' team PHOTO ');
+        $decorative = self::savedImage('same-alt-c.png', 'Team photo');
+        self::plugin()->getAudits()->setDecorative((int)$decorative->id, self::$primarySiteId, true);
+        $unique = self::savedImage('same-alt-d.png', 'A kingfisher on a branch');
+        self::savedImage('same-alt-e.png');
+        self::savedImage('same-alt-f.png');
+        $this->editor();
+        $index = fn(array $params): string => self::html($this->runAction(AssetsController::class, 'assets', 'index', $params, method: 'GET', json: false));
+
+        // Case and spaces at the ends don't matter; decorative images and empty alt text don't count.
+        $page = $index(['check' => 'sameAlt', 'search' => 'same-alt-']);
+        preg_match_all('/data-key="(\d+)-\d+"/', $page, $keys);
+        self::assertSame([(string)$first->id, (string)$second->id], $keys[1]);
+        self::assertSame(2, substr_count($page, 'Same alt text as 1 other image<'));
+        self::assertStringContainsString('check=sameAlt', $page);
+
+        $all = $index(['search' => 'same-alt-']);
+        self::assertSame(2, substr_count($all, 'data-check="sameAlt"'));
+        self::assertStringContainsString('same-alt-d.png', $all);
+
+        // Searching finds alt text as well as file names and titles.
+        preg_match_all('/data-key="(\d+)-\d+"/', $index(['search' => 'kingfisher']), $found);
+        self::assertSame([(string)$unique->id], $found[1]);
+    }
+
+    public function testImagesEmbeddedInTextWithoutAltTextAreFoundAndShownWhereUsed(): void
+    {
+        $bare = self::savedImage('canal-bare.png', 'A canal boat');
+        $other = self::savedImage('canal-other.png', 'A lock gate');
+        $decorative = self::savedImage('canal-divider.png');
+        self::plugin()->getAudits()->setDecorative((int)$decorative->id, self::$primarySiteId, true);
+        self::savedEntry('Canal walk', [self::BODY => "<img src=\"{asset:{$bare->id}:url}\"><img src=\"{asset:{$other->id}:url}\" alt=\"Different words\"><img src=\"{asset:{$decorative->id}:url}\" alt=\"\">"]);
+        self::plugin()->getScans()->start(ScanType::FULL);
+        $this->runJobs();
+        $this->editor();
+
+        $page = self::html($this->runAction(AssetsController::class, 'assets', 'index', ['check' => 'noAltInText', 'search' => 'canal-'], method: 'GET', json: false));
+        preg_match_all('/data-key="(\d+)-\d+"/', $page, $keys);
+        self::assertSame([(string)$bare->id], $keys[1]);
+        self::assertStringContainsString('No alt text where embedded in text (1)', $page);
+
+        // Someone who may see the entry (what the text says is never shown to anyone who may not).
+        $this->signIn(true);
+        $view = fn(Asset $asset): string => self::html($this->runAction(AssetsController::class, 'assets', 'view', ['assetId' => (int)$asset->id, 'siteId' => self::$primarySiteId], method: 'GET', json: false));
+        self::assertStringContainsString('data-content-alt-state="none"', $view($bare));
+        self::assertStringContainsString('Different here: “Different words”', $view($other));
+        self::assertStringNotContainsString('data-content-alt-state="none"', $view($other));
+        self::assertStringContainsString('Empty, as the image is decorative', $view($decorative));
+    }
+
     // The front end: altText() and the template check
 
     /**

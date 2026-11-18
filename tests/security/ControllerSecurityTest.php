@@ -17,6 +17,7 @@ use Tahadudhiya\AltMonitor\controllers\ScanController;
 use Tahadudhiya\AltMonitor\controllers\SettingsController;
 use Tahadudhiya\AltMonitor\controllers\SuggestionsController;
 use Tahadudhiya\AltMonitor\enums\ScanType;
+use Tahadudhiya\AltMonitor\models\ListCriteria;
 use Tahadudhiya\AltMonitor\Tests\_support\AltMonitorFixture;
 use yii\web\BadRequestHttpException;
 use yii\web\ForbiddenHttpException;
@@ -480,6 +481,33 @@ class ControllerSecurityTest extends TestCase
         self::assertCount(1, $references);
         self::assertSame('Content you can’t see', $references[0]->label);
         self::assertNull($references[0]->cpEditUrl);
+    }
+
+    public function testSameAltTextIsOnlyComparedWithImagesTheUserMaySee(): void
+    {
+        $visible = self::savedImage('twin-visible.jpg', 'Our office reception');
+        self::savedImage('twin-hidden.jpg', 'Our office reception', self::$translated);
+        $audits = AltMonitor::getInstance()->getAudits();
+        $sites = array_map(static fn($site): string => "editSite:$site->uid", Craft::$app->getSites()->getAllSites());
+        $shared = 'viewAssets:' . self::$shared->uid;
+        $peers = 'viewPeerAssets:' . self::$shared->uid;
+        $listed = static function(array $params, ?\craft\elements\User $user) use ($audits): array {
+            $counts = [];
+            foreach ($audits->page(ListCriteria::fromParams($params), $audits->viewableVolumeIds($user), $user)->items as $item) {
+                $counts[(int)$item->asset->id] = $item->sameAltCount;
+            }
+
+            return $counts;
+        };
+
+        // The twin is in a volume they may not view: no count, and not in the filter.
+        $user = $this->signIn(false, [...self::VIEW, ...$sites, $shared, $peers]);
+        self::assertSame([(int)$visible->id => 0], $listed(['search' => 'twin-'], $user));
+        self::assertSame([], $listed(['search' => 'twin-', 'check' => 'sameAlt'], $user));
+
+        $admin = $this->signIn(true);
+        self::assertSame(1, $listed(['search' => 'twin-'], $admin)[(int)$visible->id] ?? null);
+        self::assertCount(2, $listed(['search' => 'twin-', 'check' => 'sameAlt'], $admin));
     }
 
     public function testListTotalsCountOnlyImagesTheUserMaySee(): void

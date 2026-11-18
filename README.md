@@ -17,6 +17,8 @@ that runs in your browser. Nothing is saved until a person approves it.
   rich text.
 - **Catches problems while people edit.** A box in the entry editor lists the entry's images with
   missing or weak alt text, and a setting can stop entries being published until they have it.
+- **Finds what others miss:** images in rich text with no alt text there, and the same alt text
+  on different images.
 - **Works in Craft's own screens.** A box in the asset editor, a column and a filter in the
   Assets index, and a dashboard widget.
 - **Helps your templates print it.** `{{ altText(asset) }}` prints the alt text, and in dev mode
@@ -54,8 +56,7 @@ Prefer to write alt text yourself? Use **Images**: type it in the list and click
 | Screen | What you do there |
 |---|---|
 | **Dashboard** | See how many images need alt text, start scans, start describing. |
-| **Images** | Every checked image with its status. Filter by status, volume, site, usage or suggestion; search by file name or title. Type alt text in the list, or select images to describe, approve or mark as decorative. **Export CSV** downloads every image the filters show, to share with a content team. |
-| **Image page** (click an image) | The image, its alt text and status, the suggestion (**Use this** / **Reject**), **Describe the image**, **Mark as decorative**, and where the image is used. |
+| **Pages** | Entries and other content (global sets, categories…), the ones with the most images to fix first, with how many are missing, weak, to review or embedded without alt text. **Fix images** opens the Images list with just that page's images. One site at a time. |
 | **Suggestions** | Everything waiting for review. Edit, **Approve** or **Reject**; **Approve selected** or **Approve all on this page**. Keyboard: Ctrl/⌘ + Enter approves, Esc rejects. |
 | **Image model** | Download or remove the image model and the translation models in this browser. |
 | **Settings** | Two tabs: **Scanning & rules** (scan options, how images are checked, extra generic words) and **Languages**. |
@@ -141,6 +142,24 @@ afterwards (Settings → Scanning).
 It can't see templates, custom code or other systems, so “Not found in content” doesn't prove an
 image is unused.
 
+
+## More checks
+
+Two checks look beyond one image's own alt text. Pick them under **More checks** on the Images
+list; each image they apply to also says so under its status.
+
+- **No alt text where embedded in text.** Rich text keeps the alt text an image was inserted
+  with, so the page can show an image with no alt text even when the asset has some, or with
+  older words. The usage scan notes each `<img>` without alt text (decorative images are fine
+  without). The image page's **Where it is used** shows, for each piece of content, what its text
+  says now: **None in the text**, **Different here: “…”** or **Same as the image**. Fix it in the
+  entry. The list updates at the next usage scan; the image page right away.
+- **Same alt text as other images.** For example 40 different photos all called “Team photo”.
+  Compared per site, ignoring case and spaces at the ends, only with images you may see;
+  decorative images and empty alt text are left out. The list is sorted by alt text, so each
+  group is together, and **Same alt text as N other images** lists that group.
+
+After updating AltMonitor, run a usage scan once so the rich text check has something to show.
 
 ## In your templates
 

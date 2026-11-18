@@ -18,7 +18,7 @@
 {% block content %}
     {% import 'alt-monitor/_macros' as macros %}
     {% set canAct = canEditAlt or canApprove or canGenerate %}
-    {% set narrowed = criteria.search or criteria.usage or criteria.suggestion or criteria.siteId or criteria.volumeId %}
+    {% set narrowed = criteria.search or criteria.usage or criteria.suggestion or criteria.siteId or criteria.volumeId or criteria.check %}
 
     {# ---------- Toolbar: status pills, filter boxes (applied on change), search ---------- #}
     {% set tabs = [
@@ -60,6 +60,14 @@
                         {% endfor %}
                     </select>
                 </div>
+                <div class="select">
+                    <select name="check" aria-label="{{ 'More checks'|t('alt-monitor') }}">
+                        <option value="">{{ 'More checks'|t('alt-monitor') }}</option>
+                        {% for check in checks %}
+                            <option value="{{ check.value }}" {{ criteria.check == check ? 'selected' }}>{{ check.label() }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
                 {% if craft.app.isMultiSite %}
                     <div class="select">
                         <select name="inSite" aria-label="{{ 'Site'|t('app') }}">
@@ -93,8 +101,8 @@
 
         <div class="altmonitor-search texticon search icon">
             <input type="search" class="text fullwidth" name="search" value="{{ criteria.search }}" maxlength="255"
-                   placeholder="{{ 'Search file names and titles'|t('alt-monitor') }}"
-                   aria-label="{{ 'Search file names and titles'|t('alt-monitor') }}">
+                   placeholder="{{ 'Search file names, titles and alt text'|t('alt-monitor') }}"
+                   aria-label="{{ 'Search file names, titles and alt text'|t('alt-monitor') }}">
         </div>
     </form>
 
@@ -174,6 +182,7 @@
                                             {{ macros.altStatus(item.status) }}
                                             {% if item.status.value != 'missing' %}{% for issue in item.issues %}<span class="smalltext light">{{ issue.label() }}</span>{% endfor %}{% endif %}
                                         </div>
+                                        {{ macros.otherChecks(item) }}
                                         {% if editable %}
                                             {# A text box drops line breaks (Craft's Alt Text field allows them): they are dropped here
                                              # too, so the box and its original match and an untouched row isn't seen as changed. #}

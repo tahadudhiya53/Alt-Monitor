@@ -841,6 +841,14 @@ body.altmonitor-page .btn[hidden] {
     }
 }
 
+/* Checks beyond one image's own alt text, under its status. */
+.altmonitor-other-checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    margin: 0 0 8px;
+}
+
 /* One image */
 .altmonitor-image-layout {
     display: flex;
