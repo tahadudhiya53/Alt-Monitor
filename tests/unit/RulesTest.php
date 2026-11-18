@@ -6,8 +6,10 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Tahadudhiya\AltMonitor\enums\AltIssue;
 use Tahadudhiya\AltMonitor\enums\AltStatus;
+use Tahadudhiya\AltMonitor\enums\ListCheck;
 use Tahadudhiya\AltMonitor\models\AltAnalysis;
 use Tahadudhiya\AltMonitor\models\ImageContext;
+use Tahadudhiya\AltMonitor\models\ListCriteria;
 use Tahadudhiya\AltMonitor\models\Settings;
 use Tahadudhiya\AltMonitor\services\AltTextAnalyzer;
 use Tahadudhiya\AltMonitor\services\AltTextEditor;
@@ -20,7 +22,7 @@ use Tahadudhiya\AltMonitor\services\TemplateCheck;
 /**
  * The rule-based checks and suggestions: what counts as missing, weak, good or worth a review,
  * and what a suggestion can be built from. Also the template check's reading of rendered pages,
- * and the alt text images embedded in content are given there.
+ * the alt text images embedded in content are given there, and the list filters for both.
  */
 class RulesTest extends TestCase
 {
@@ -297,5 +299,25 @@ class RulesTest extends TestCase
         self::assertNotSame(Audits::altKeyFor('Team photo'), Audits::altKeyFor('Team photos'));
         self::assertNull(Audits::altKeyFor(null));
         self::assertNull(Audits::altKeyFor("  \n "));
+    }
+
+    public function testListFiltersForOtherChecksAndContentAreReadStrictly(): void
+    {
+        $criteria = ListCriteria::fromParams(['check' => 'sameAlt', 'usedIn' => '1234', 'page' => '2']);
+
+        self::assertSame(ListCheck::SAME_ALT, $criteria->check);
+        self::assertSame(1234, $criteria->usedIn);
+        self::assertTrue($criteria->isFiltered());
+        self::assertSame(['check' => 'sameAlt', 'usedIn' => 1234, 'page' => 2], $criteria->params());
+        self::assertSame(['check' => 'noAltInText', 'usedIn' => 1234], $criteria->params(['check' => 'noAltInText', 'page' => null]));
+        self::assertNull(ListCriteria::fromParams([])->check);
+
+        foreach ([['usedIn' => '-1'], ['usedIn' => '1.5'], ['usedIn' => '2147483648'], ['usedIn' => '0'], ['check' => 'SAMEALT'], ['usedIn' => ['1']]] as $params) {
+            try {
+                ListCriteria::fromParams($params);
+                self::fail('Accepted ' . json_encode($params));
+            } catch (\InvalidArgumentException) {
+            }
+        }
     }
 }

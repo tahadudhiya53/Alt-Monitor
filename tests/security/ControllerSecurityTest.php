@@ -13,6 +13,7 @@ use Tahadudhiya\AltMonitor\controllers\AssetsController;
 use Tahadudhiya\AltMonitor\controllers\DashboardController;
 use Tahadudhiya\AltMonitor\controllers\EntriesController;
 use Tahadudhiya\AltMonitor\controllers\ModelController;
+use Tahadudhiya\AltMonitor\controllers\PagesController;
 use Tahadudhiya\AltMonitor\controllers\ScanController;
 use Tahadudhiya\AltMonitor\controllers\SettingsController;
 use Tahadudhiya\AltMonitor\controllers\SuggestionsController;
@@ -78,6 +79,7 @@ class ControllerSecurityTest extends TestCase
         yield 'dashboard' => [DashboardController::class, 'dashboard', 'index'];
         yield 'images' => [AssetsController::class, 'assets', 'index'];
         yield 'images export' => [AssetsController::class, 'assets', 'export'];
+        yield 'pages' => [PagesController::class, 'pages', 'index'];
         yield 'suggestions' => [SuggestionsController::class, 'suggestions', 'index'];
         yield 'settings' => [SettingsController::class, 'settings', 'index'];
         yield 'image model' => [ModelController::class, 'model', 'index'];
@@ -481,6 +483,63 @@ class ControllerSecurityTest extends TestCase
         self::assertCount(1, $references);
         self::assertSame('Content you can’t see', $references[0]->label);
         self::assertNull($references[0]->cpEditUrl);
+    }
+
+    /**
+     * @return iterable<string, array{class-string<\craft\web\Controller>, string, array<string, mixed>}>
+     */
+    public static function malformedListFilters(): iterable
+    {
+        yield 'content ID that is not a number' => [AssetsController::class, 'assets', ['usedIn' => '1 OR 1=1']];
+        yield 'content ID zero' => [AssetsController::class, 'assets', ['usedIn' => '0']];
+        yield 'content ID past the largest integer' => [AssetsController::class, 'assets', ['usedIn' => '9999999999']];
+        yield 'unknown check' => [AssetsController::class, 'assets', ['check' => 'everything']];
+        yield 'check as an array' => [AssetsController::class, 'assets', ['check' => ['sameAlt']]];
+        yield 'unknown site on Pages' => [PagesController::class, 'pages', ['inSite' => 'nowhere']];
+        yield 'page that is not a number on Pages' => [PagesController::class, 'pages', ['page' => '2; DROP TABLE']];
+    }
+
+    /**
+     * @param class-string<\craft\web\Controller> $class
+     * @param array<string, mixed> $params
+     */
+    #[DataProvider('malformedListFilters')]
+    public function testMalformedListFiltersAreRefused(string $class, string $id, array $params): void
+    {
+        $this->signIn(true);
+
+        $this->expectException(BadRequestHttpException::class);
+        $this->runAction($class, $id, 'index', $params, method: 'GET', json: false);
+    }
+
+    public function testThePagesListHidesContentTheUserMayNotView(): void
+    {
+        $image = self::savedImage('IMG_0501.jpg');
+        $entry = self::savedEntry('Salary review', [self::IMAGES => [$image->id]]);
+        AltMonitor::getInstance()->getScans()->start(ScanType::FULL);
+        $this->runJobs();
+        $viewer = $this->signIn(false, [...self::VIEW, ...self::assetPermissions()]);
+
+        $items = [];
+        $pages = AltMonitor::getInstance()->getPages();
+        for ($number = 1; $number <= 20; $number++) {
+            $page = $pages->page(self::$primarySiteId, $number, $viewer);
+            foreach ($page->items as $item) {
+                $items[$item->elementId] = $item;
+            }
+            if ($number >= $page->pageCount()) {
+                break;
+            }
+        }
+
+        // Listed, since it uses an image they may fix, but without its title or a link to it.
+        self::assertArrayHasKey((int)$entry->id, $items);
+        self::assertNull($items[(int)$entry->id]->element);
+        self::assertSame(1, $items[(int)$entry->id]->missing);
+
+        $html = self::html($this->runAction(AssetsController::class, 'assets', 'index', ['usedIn' => (string)$entry->id], method: 'GET', json: false));
+        self::assertStringNotContainsString('Salary review', $html);
+        self::assertStringContainsString('Images used in content you can’t see', $html);
     }
 
     public function testSameAltTextIsOnlyComparedWithImagesTheUserMaySee(): void

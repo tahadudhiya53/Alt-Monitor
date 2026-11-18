@@ -17,6 +17,7 @@ use Psr\Http\Message\RequestInterface;
 use Tahadudhiya\AltMonitor\AltMonitor;
 use Tahadudhiya\AltMonitor\controllers\AssetsController;
 use Tahadudhiya\AltMonitor\controllers\EntriesController;
+use Tahadudhiya\AltMonitor\controllers\PagesController;
 use Tahadudhiya\AltMonitor\controllers\SettingsController;
 use Tahadudhiya\AltMonitor\controllers\SuggestionsController;
 use Tahadudhiya\AltMonitor\enums\AltIssue;
@@ -1458,6 +1459,8 @@ class SuggestionsTest extends TestCase
         self::assertTrue($live()->validate());
     }
 
+    // Checks beyond one image's alt text, and the Pages list
+
     public function testTheImageListFindsAltTextOtherImagesShare(): void
     {
         $first = self::savedImage('same-alt-a.png', 'Team photo');
@@ -1509,6 +1512,36 @@ class SuggestionsTest extends TestCase
         self::assertStringContainsString('Different here: “Different words”', $view($other));
         self::assertStringNotContainsString('data-content-alt-state="none"', $view($other));
         self::assertStringContainsString('Empty, as the image is decorative', $view($decorative));
+    }
+
+    public function testThePagesListLeadsToTheImagesOfEachPage(): void
+    {
+        $missing = self::savedImage('gallery-missing.png');
+        $entry = self::savedEntry('Gallery page', [self::IMAGES => [$missing->id]]);
+        // Before any usage scan there is nothing to rank, and the page says how to start one.
+        \craft\helpers\Db::update(\Tahadudhiya\AltMonitor\records\AuditRecord::TABLE, ['usageStatus' => 'unknown'], [], updateTimestamp: false);
+        $pages = fn(array $params = []): string => self::html($this->runAction(PagesController::class, 'pages', 'index', $params, method: 'GET', json: false));
+
+        $this->editor();
+        self::assertStringContainsString('Someone who can run scans', $pages());
+        $this->signIn(false, ['accessCp', 'accessPlugin-alt-monitor', AltMonitor::PERMISSION_VIEW, AltMonitor::PERMISSION_RUN_SCANS, ...self::assetPermissions()]);
+        self::assertStringContainsString('value="usage"', $pages());
+
+        self::plugin()->getScans()->start(ScanType::FULL);
+        $this->runJobs();
+        $this->signIn(true);
+
+        $list = '';
+        for ($number = 1; $number <= 20 && !str_contains($list, 'data-element-id="' . $entry->id . '"'); $number++) {
+            $list = $pages($number > 1 ? ['page' => (string)$number] : []);
+        }
+        self::assertMatchesRegularExpression('/data-element-id="' . $entry->id . '".*?Gallery page.*?1 missing/s', $list);
+        self::assertStringContainsString('usedIn=' . $entry->id, $list);
+
+        $images = self::html($this->runAction(AssetsController::class, 'assets', 'index', ['usedIn' => (string)$entry->id], method: 'GET', json: false));
+        self::assertStringContainsString('Images used in Gallery page', $images);
+        preg_match_all('/data-key="(\d+)-\d+"/', $images, $keys);
+        self::assertSame([(string)$missing->id], $keys[1]);
     }
 
     // The front end: altText() and the template check

@@ -37,6 +37,7 @@ use Tahadudhiya\AltMonitor\services\Audits;
 use Tahadudhiya\AltMonitor\services\ContentUsageScanner;
 use Tahadudhiya\AltMonitor\services\EntryCheck;
 use Tahadudhiya\AltMonitor\services\ImageExport;
+use Tahadudhiya\AltMonitor\services\Pages;
 use Tahadudhiya\AltMonitor\services\Scans;
 use Tahadudhiya\AltMonitor\services\SuggestionGenerator;
 use Tahadudhiya\AltMonitor\services\Suggestions;
@@ -65,6 +66,7 @@ use yii\base\Model as YiiModel;
  * @property-read EntryCheck $entryCheck
  * @property-read ImageExport $imageExport
  * @property-read ContentUsageScanner $contentUsage
+ * @property-read Pages $pages
  * @property-read Scans $scans
  * @property-read SuggestionGenerator $suggestionGenerator
  * @property-read Suggestions $suggestions
@@ -109,6 +111,7 @@ class AltMonitor extends Plugin
                 'contentUsage' => ['class' => ContentUsageScanner::class],
                 'entryCheck' => ['class' => EntryCheck::class],
                 'imageExport' => ['class' => ImageExport::class],
+                'pages' => ['class' => Pages::class],
                 'scans' => ['class' => Scans::class],
                 'suggestionGenerator' => static fn(): SuggestionGenerator => new SuggestionGenerator(self::getInstance()->getAnalyzer()),
                 'suggestions' => ['class' => Suggestions::class],
@@ -145,6 +148,7 @@ class AltMonitor extends Plugin
             $event->rules['alt-monitor/images'] = 'alt-monitor/assets/index';
             $event->rules['alt-monitor/images/export'] = 'alt-monitor/assets/export';
             $event->rules['alt-monitor/images/<assetId:\d+>/<siteId:\d+>'] = 'alt-monitor/assets/view';
+            $event->rules['alt-monitor/pages'] = 'alt-monitor/pages/index';
             $event->rules['alt-monitor/suggestions'] = 'alt-monitor/suggestions/index';
             $event->rules['alt-monitor/settings'] = 'alt-monitor/settings/index';
             $event->rules['alt-monitor/image-model'] = 'alt-monitor/model/index';
@@ -308,6 +312,7 @@ class AltMonitor extends Plugin
         $item['subnav'] = [
             'dashboard' => ['label' => Craft::t('alt-monitor', 'Dashboard'), 'url' => 'alt-monitor'],
             'images' => ['label' => Craft::t('alt-monitor', 'Images'), 'url' => 'alt-monitor/images'],
+            'pages' => ['label' => Craft::t('alt-monitor', 'Pages'), 'url' => 'alt-monitor/pages'],
             'suggestions' => ['label' => Craft::t('alt-monitor', 'Suggestions'), 'url' => 'alt-monitor/suggestions'],
         ];
 
@@ -385,6 +390,12 @@ class AltMonitor extends Plugin
     {
         /** @var ImageExport */
         return $this->get('imageExport');
+    }
+
+    public function getPages(): Pages
+    {
+        /** @var Pages */
+        return $this->get('pages');
     }
 
     public function getContentUsage(): ContentUsageScanner

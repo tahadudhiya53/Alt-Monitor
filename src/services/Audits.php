@@ -401,8 +401,13 @@ class Audits extends Component
         $query->andFilterWhere([
             'audits.altStatus' => $criteria->status?->value,
             'audits.usageStatus' => $criteria->usage?->value,
-            'audits.siteId' => $criteria->siteId,
         ]);
+
+        if ($criteria->usedIn !== null) {
+            $this->whereUsedIn($query, $criteria->usedIn, $criteria->siteId);
+        } else {
+            $query->andFilterWhere(['audits.siteId' => $criteria->siteId]);
+        }
 
         if ($criteria->suggestion === ListCriteria::SUGGESTION_NONE) {
             $query->andWhere(['suggestions.id' => null]);
@@ -435,6 +440,29 @@ class Audits extends Component
         $query->andWhere($this->visibleCondition($user));
 
         return $query;
+    }
+
+    /**
+     * Narrows the list to images used in a piece of content or anything nested in it. With a site,
+     * images as that site's content shows them (alt text shared by all sites is audited in the
+     * primary site), rather than audits of that site alone.
+     */
+    private function whereUsedIn(Query $query, int $elementId, ?int $siteId): void
+    {
+        $pages = AltMonitor::getInstance()->getPages();
+        $usages = (new Query())
+            ->from(['usages' => UsageRecord::TABLE])
+            ->where('[[usages.assetId]] = [[audits.assetId]]')
+            ->andWhere(['usages.sourceElementId' => $pages->contentIds($elementId)]);
+
+        if ($siteId !== null) {
+            $usages->andWhere(['or', ['usages.sourceSiteId' => null], ['usages.sourceSiteId' => $siteId]]);
+            $query->andWhere($pages->auditInSite($siteId));
+        } else {
+            $usages->andWhere(['or', ['usages.sourceSiteId' => null], $this->usageInAuditSite()]);
+        }
+
+        $query->andWhere(['exists', $usages]);
     }
 
     /**

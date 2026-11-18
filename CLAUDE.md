@@ -47,6 +47,7 @@ Queue job (orchestration: one bounded batch, then push the next)
 | `assetsUi` | `services/AssetsUi` | Craft's own asset screens: the editor sidebar box (`_sidebar.twig`) and the Assets index column. Never writes |
 | `entryCheck` | `services/EntryCheck` | Craft's entry editor: the sidebar box (`_entry-sidebar.twig`) and the publish check. Reads the entry's images from its field values. Never writes |
 | `imageExport` | `services/ImageExport` | The Images list as CSV (`Audits::all()`: the list's query, every page, batches of 200). Never writes |
+| `pages` | `services/Pages` | The Pages list: `ranked()` (usages × problem audits in one site, grouped by top-level owner via `roots()`), `page()`, `contentIds()` (an element + live nested descendants, for `usedIn`), `auditInSite()`, `usageChecked()`. Never writes |
 | `templateCheck` | `services/TemplateCheck` | The front end: `altAttribute()` behind the `altText()` Twig function (`web/twig/Extension`), and the dev mode check (`findProblems()`, `withWarnings()`: pure, static). Never writes |
 | `aiProviders` | `services/AiProviders` | Builds the (Ollama) provider from settings; `EVENT_DEFINE_PROVIDER` lets code replace it; `browserConfig()` for the browser; `describerConfig()` (Describe buttons, null with Ollama) and `translatorConfig()` (Translate, also with Ollama) |
 
@@ -145,7 +146,7 @@ suggestion walk), `ScanContentUsageJob` (relations phase, then reference tags ph
 `Audits::applyUsageStatuses()`); `GenerateAltTextJob` (given targets, or a walk of audits wanting
 suggestions, 5 per job, TTR scaled by `aiTimeout`).
 
-Controllers: `Dashboard` (index, progress JSON), `Model` (the image model page), `Scan` (start),
+Controllers: `Dashboard` (index, progress JSON), `Model` (the image model page), `Pages` (index), `Scan` (start),
 `Assets` (index, export, view, check, save, decorative, bulk: save / approve / generate, sidebar: the
 editor box's HTML again), `Entries` (sidebar: the entry box's HTML again), `Suggestions` (index, approve, reject, bulk-approve, image, next, store,
 translate, regenerate, generate-all), `Settings` (index, save, test-connection). Shared input reading in the
@@ -180,7 +181,7 @@ src/
   records/                  one per table, schema only
   services/                 see table above
   widgets/                  CoverageWidget (Craft's dashboard)
-  templates/                _dashboard, _describer, _entry-sidebar, _macros, _sidebar, _widget, images/{_index,_view}, model/_index, suggestions/_index, settings/_index
+  templates/                _dashboard, _describer, _entry-sidebar, _macros, _sidebar, _widget, images/{_index,_view}, model/_index, pages/_index, suggestions/_index, settings/_index
   translations/en/alt-monitor.php
   web/twig/Extension.php    the altText() Twig function (site and CP templates)
   web/assets/cp/            CpAsset + dist/cp.css, cp.js, describe-worker.js, vendor/transformers.min.js (no build step)
@@ -261,6 +262,43 @@ tests/
   stored.
 - **Flashes** are read only when a session exists (`RequestInput::failures()`), since the console
   app running tests has none.
+
+### Pages, and checks beyond one image
+
+- **Pages** (`PagesController`, route `alt-monitor/pages`, view permission, nav after Images):
+  one site at a time (`inSite`, default the primary site or the first one the user may edit).
+  `Pages::ranked()` joins usages (in the site: `sourceSiteId` null or the site, the source
+  element present in `elements_sites` there) with audits as the site shows them
+  (`auditInSite()`: that site's, or the primary site's for shared alt text), keeps problem rows
+  (missing / weak / review, or `altInContent = false` and not decorative), applies
+  `visibleCondition()`, then in PHP maps each source to its top-level owner (`roots()`: walks
+  `elements_owners` to live owners, max 10 levels; nested elements whose owners are all drafts,
+  revisions or trashed are dropped) and counts distinct images per status. Ranked by problems,
+  missing, weak, then ID; paged in PHP; elements loaded a type at a time; content the user can't
+  view is listed without title or link. Empty state until `usageChecked()`.
+- **`usedIn`** (`ListCriteria`, an element ID): Images list narrowed to images used in that content
+  or anything nested in it (`contentIds()`). With `inSite` it means “as that site shows them”
+  (`auditInSite()`), not `audits.siteId` alone, so shared-alt images appear on other sites' pages.
+- **`check`** (`ListCriteria`, `enums/ListCheck`): `sameAlt` joins `sameAltGroups()` (per site,
+  `audits.altKey`, more than one image, decorative and empty left out, only images the user may
+  see); the list is then ordered by that key. Never compare alt text in SQL (`LOWER(TRIM())`
+  can't use an index and folds case differently on MySQL and PostgreSQL). `noAltInText` needs a usage with
+  `altInContent = false` in the audit's site (any site for shared alt text), not decorative.
+  Per-row counts (`AuditItem::$sameAltCount`, `$noAltInTextCount`) are read for the page in two
+  queries (`sameAltCounts()`: a self-join on `(siteId, altKey)`; `noAltInTextCounts()`);
+  `_macros.otherChecks(item)` shows them on the list and the image page. Search also matches
+  `alts.alt`, with `ilike` on PostgreSQL. `usedIn` is capped at 2147483647 (PostgreSQL refuses a
+  larger integer). `Pages::ranked()` reads rows with `batch()`, keeps a bit mask per (source,
+  image), splits `IN` lists into chunks of 1000, and drops roots that aren't live in the site
+  (`liveInSite()`) before counting, so totals match the rows.
+- Alt text is read from `assets_sites` (where Craft keeps it per site for every volume), never
+  copied. `ContentUsageScanner::embeddedAlts()` (pure, static) reads `<img>` tags in content (JSON
+  text values or plain HTML), keyed by the asset ID in `src`; links (`href`) are not images. The
+  image page's **Alt text there** column reads the content again (`references()` →
+  `UsageReference::$contentAlts`), so it is current, and hides it for content the user can't view.
+  For volumes with alt text per site, `actionView()` passes `siteId` to `references()` (content
+  of that site plus relations without a site); shared alt text shows every site. Don't use
+  `andFilterWhere()` for a condition with a `null` value: it drops it.
 
 ### Front-end templates
 

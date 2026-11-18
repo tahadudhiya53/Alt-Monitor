@@ -18,7 +18,7 @@
 {% block content %}
     {% import 'alt-monitor/_macros' as macros %}
     {% set canAct = canEditAlt or canApprove or canGenerate %}
-    {% set narrowed = criteria.search or criteria.usage or criteria.suggestion or criteria.siteId or criteria.volumeId or criteria.check %}
+    {% set narrowed = criteria.search or criteria.usage or criteria.suggestion or criteria.siteId or criteria.volumeId or criteria.check or criteria.usedIn %}
 
     {# ---------- Toolbar: status pills, filter boxes (applied on change), search ---------- #}
     {% set tabs = [
@@ -30,6 +30,7 @@
     ] %}
     <form method="get" action="{{ url('alt-monitor/images') }}" class="altmonitor-toolbar" role="search" id="altmonitor-image-filters" data-altmonitor-autofilter>
         {% if criteria.status %}{{ hiddenInput('status', criteria.status.value) }}{% endif %}
+        {% if criteria.usedIn %}{{ hiddenInput('usedIn', criteria.usedIn) }}{% endif %}
         <div class="altmonitor-toolbar-row">
             <nav class="altmonitor-tabs" aria-label="{{ 'Alt text status'|t('alt-monitor') }}">
                 {% for tab in tabs %}
@@ -105,6 +106,18 @@
                    aria-label="{{ 'Search file names, titles and alt text'|t('alt-monitor') }}">
         </div>
     </form>
+
+    {% if criteria.usedIn %}
+        <p class="altmonitor-used-in" id="altmonitor-used-in">
+            {% if usedInElement %}
+                {{ 'Images used in {name}'|t('alt-monitor', {name: usedInElement.getUiLabel()}) }}
+            {% else %}
+                {{ 'Images used in content you can’t see'|t('alt-monitor') }}
+            {% endif %}
+            <a href="{{ url('alt-monitor/images', criteria.params({usedIn: null, page: null})) }}">{{ 'Show all images'|t('alt-monitor') }}</a>
+            <a href="{{ url('alt-monitor/pages', {inSite: criteria.siteId ? craft.app.sites.getSiteById(criteria.siteId).handle : null}) }}">{{ 'Back to pages'|t('alt-monitor') }}</a>
+        </p>
+    {% endif %}
 
     {{ macros.failures(failures) }}
 

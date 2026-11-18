@@ -35,6 +35,8 @@ final class ListCriteria
         public readonly string $search = '',
         public readonly int $page = 1,
         public readonly ?ListCheck $check = null,
+        /** Only images used in this content (an entry, global set…) or the content nested in it. */
+        public readonly ?int $usedIn = null,
     ) {
     }
 
@@ -82,6 +84,13 @@ final class ListCriteria
             throw new InvalidArgumentException('The page must be a positive whole number.');
         }
 
+        $usedIn = $string('usedIn');
+
+        // At most the largest ID an integer column holds (PostgreSQL refuses a larger one).
+        if ($usedIn !== null && (!preg_match('/^[1-9]\d{0,9}$/', $usedIn) || (int)$usedIn > 2147483647)) {
+            throw new InvalidArgumentException('“usedIn” must be an element ID.');
+        }
+
         return new self(
             status: $enum('status', AltStatus::class),
             usage: $enum('usage', UsageStatus::class),
@@ -93,6 +102,7 @@ final class ListCriteria
             search: mb_substr(trim((string)$string('search')), 0, 255),
             page: (int)$page,
             check: $enum('check', ListCheck::class),
+            usedIn: $usedIn === null ? null : (int)$usedIn,
         );
     }
 
@@ -114,6 +124,7 @@ final class ListCriteria
             'volume' => $this->volumeId !== null ? Craft::$app->getVolumes()->getVolumeById($this->volumeId)?->handle : null,
             'search' => $this->search !== '' ? $this->search : null,
             'check' => $this->check?->value,
+            'usedIn' => $this->usedIn,
             'page' => $this->page > 1 ? $this->page : null,
         ], $changes);
 

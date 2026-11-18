@@ -17,6 +17,8 @@ that runs in your browser. Nothing is saved until a person approves it.
   rich text.
 - **Catches problems while people edit.** A box in the entry editor lists the entry's images with
   missing or weak alt text, and a setting can stop entries being published until they have it.
+- **Fix by page.** Pages lists your entries by how many of their images need work: “Home – 6
+  missing, About – 4”.
 - **Finds what others miss:** images in rich text with no alt text there, and the same alt text
   on different images.
 - **Works in Craft's own screens.** A box in the asset editor, a column and a filter in the
@@ -56,6 +58,8 @@ Prefer to write alt text yourself? Use **Images**: type it in the list and click
 | Screen | What you do there |
 |---|---|
 | **Dashboard** | See how many images need alt text, start scans, start describing. |
+| **Images** | Every checked image with its status. Filter by status, volume, site, usage, suggestion or **More checks**; search by file name, title or alt text. Type alt text in the list, or select images to describe, approve or mark as decorative. **Export CSV** downloads every image the filters show, to share with a content team. |
+| **Image page** (click an image) | The image, its alt text and status, the suggestion (**Use this** / **Reject**), **Describe the image**, **Mark as decorative**, and where the image is used, with the alt text rich text gives it there. |
 | **Pages** | Entries and other content (global sets, categories…), the ones with the most images to fix first, with how many are missing, weak, to review or embedded without alt text. **Fix images** opens the Images list with just that page's images. One site at a time. |
 | **Suggestions** | Everything waiting for review. Edit, **Approve** or **Reject**; **Approve selected** or **Approve all on this page**. Keyboard: Ctrl/⌘ + Enter approves, Esc rejects. |
 | **Image model** | Download or remove the image model and the translation models in this browser. |
@@ -142,6 +146,8 @@ afterwards (Settings → Scanning).
 It can't see templates, custom code or other systems, so “Not found in content” doesn't prove an
 image is unused.
 
+**Pages** is built from the last usage scan: images in Matrix and other nested content count
+toward the entry that holds them. Run a usage scan (or a full scan) after big content changes.
 
 ## More checks
 
@@ -185,6 +191,7 @@ page fragments loaded by Ajax). When nothing is wrong, the page is not changed. 
 the check never runs and `altText()` prints only the `alt` attribute. The warnings are an
 inline `<script>`, so a content security policy without `'unsafe-inline'` will block them. To
 turn the check off, set `'templateCheck' => false` in `config/alt-monitor.php`.
+
 ## Settings
 
 **AltMonitor → Settings** has two tabs. Settings are saved to project config, so they can only
@@ -238,7 +245,7 @@ Everything can also be set in `config/alt-monitor.php`, which overrides the cont
 
 | Permission | Allows |
 |---|---|
-| View AltMonitor | The dashboard, images and suggestions, in volumes the user can see |
+| View AltMonitor | The dashboard, images, pages and suggestions, in volumes the user can see |
 | ↳ Run scans | Starting scans |
 | ↳ Get suggestions | Describing and translating images |
 | ↳ Edit alt text | Saving alt text and marking images as decorative (the user must also be allowed to save the asset) |

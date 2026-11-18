@@ -849,6 +849,40 @@ body.altmonitor-page .btn[hidden] {
     margin: 0 0 8px;
 }
 
+/* The Images list narrowed to one page's images. */
+.altmonitor-used-in {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 12px;
+    margin: 0 0 16px;
+    font-weight: 600;
+}
+
+.altmonitor-used-in a {
+    font-weight: normal;
+}
+
+/* Pages list */
+.altmonitor-intro {
+    margin: 0 0 16px;
+}
+
+.altmonitor-counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+}
+
+.altmonitor-row-links {
+    white-space: nowrap;
+    text-align: end;
+}
+
+.altmonitor-row-links .go {
+    margin-inline-start: 8px;
+}
+
 /* One image */
 .altmonitor-image-layout {
     display: flex;
@@ -1134,6 +1168,30 @@ body.altmonitor-page .btn[hidden] {
         min-width: 0;
         width: 100%;
         box-sizing: border-box;
+    }
+
+    #altmonitor-pages thead {
+        display: none;
+    }
+
+    #altmonitor-pages,
+    #altmonitor-pages tbody,
+    #altmonitor-pages tr,
+    #altmonitor-pages tr > * {
+        display: block;
+        width: 100%;
+        max-width: none !important;
+        box-sizing: border-box;
+    }
+
+    #altmonitor-pages tr > * {
+        padding-inline: 0;
+        border: 0;
+        text-align: start;
+    }
+
+    #altmonitor-pages tr {
+        border-bottom: 1px solid var(--hairline-color, rgba(51, 64, 77, 0.1));
     }
 
     .altmonitor-file {

@@ -3,6 +3,7 @@
 namespace Tahadudhiya\AltMonitor\controllers;
 
 use Craft;
+use craft\base\ElementInterface;
 use craft\elements\Asset;
 use craft\web\Controller;
 use InvalidArgumentException;
@@ -68,6 +69,7 @@ class AssetsController extends Controller
             'usageStatuses' => UsageStatus::cases(),
             'suggestionStatuses' => SuggestionStatus::cases(),
             'checks' => ListCheck::cases(),
+            'usedInElement' => $this->usedInElement($criteria),
             'failures' => $this->failures(),
             // For the empty list: a scan already on its way, rather than a button to start one.
             'activeScan' => $stats->audited === 0 ? AltMonitor::getInstance()->getScans()->active() : null,
@@ -443,6 +445,20 @@ class AssetsController extends Controller
             'canScan' => $user->checkPermission(AltMonitor::PERMISSION_RUN_SCANS),
             'serverAi' => AltMonitor::getInstance()->getSuggestions()->generatesOnServer(),
         ];
+    }
+
+    /**
+     * The content the list is narrowed to, if the user may see it.
+     */
+    private function usedInElement(ListCriteria $criteria): ?ElementInterface
+    {
+        if ($criteria->usedIn === null) {
+            return null;
+        }
+
+        $element = Craft::$app->getElements()->getElementById($criteria->usedIn, null, $criteria->siteId ?? '*');
+
+        return $element !== null && Craft::$app->getElements()->canView($element, $this->user()) ? $element : null;
     }
 
     /**
