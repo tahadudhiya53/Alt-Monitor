@@ -1673,10 +1673,11 @@ body.altmonitor-page .btn[hidden] {
 .altmonitor-state--warning { border-inline-start-color: var(--warning-color, #c75b00); }
 .altmonitor-state--error { border-inline-start-color: var(--error-color, #cf1124); }
 
-/* Filter boxes share the pills' row and shrink before they wrap below it. */
+/* Filter boxes share the pills' row, shrink, then wrap onto a second line of their own: never
+   over the pills, however many filters a list has. */
 .altmonitor-filter-boxes {
     flex: 1 1 320px;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     min-width: 0;
 }
 

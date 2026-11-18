@@ -366,7 +366,8 @@ not propagating/resaving/a revision/nested (`getPrimaryOwnerId()`; the owner che
 images), and the request is a CP request (console requests are never CP; don't use
 `getIsConsoleRequest()`, which is true for any CLI process, tests included). Only **missing** alt
 blocks; weak never does. One error per top-level field handle, so Craft shows it at the field and
-in its error summary.
+in its error summary. Every image counts, but the error names only those the person saving may see
+(`AssetScanner::userMay()`); the rest are counted (“1 image you can’t see”).
 
 **Demo content:** `seed-alt-monitor-entries.php` in the host project root (`ddev exec php
 seed-alt-monitor-entries.php [--remove]`) creates 7 drawn images, a section and 4 entries; re-running

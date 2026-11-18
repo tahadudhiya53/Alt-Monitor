@@ -75,6 +75,9 @@ trait AltMonitorFixture
         }
 
         ProjectConfigSandbox::open();
+        // Created now, as a console component: made first inside a test's web request (the
+        // `|number` filter does), it would look for a web session the console app can't have.
+        Craft::$app->getFormatter();
         self::$transaction = Craft::$app->getDb()->beginTransaction();
         self::$primarySiteId = (int)Craft::$app->getSites()->getPrimarySite()->id;
         self::$root = sys_get_temp_dir() . '/alt-monitor-test-' . bin2hex(random_bytes(6));

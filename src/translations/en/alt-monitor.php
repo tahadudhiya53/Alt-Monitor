@@ -524,4 +524,5 @@ return [
     'Counts images in Craft fields and rich text, as the last usage scan found them. Images a template adds aren’t counted.' => 'Counts images in Craft fields and rich text, as the last usage scan found them. Images a template adds aren’t counted.',
     'Same alt text as {count, number} other {count, plural, =1{image} other{images}}' => 'Same alt text as {count, number} other {count, plural, =1{image} other{images}}',
     'No alt text where embedded in text ({count, number})' => 'No alt text where embedded in text ({count, number})',
+    '{count, plural, =1{1 image you can’t see} other{# images you can’t see}}' => '{count, plural, =1{1 image you can’t see} other{# images you can’t see}}',
 ];

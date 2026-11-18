@@ -120,7 +120,9 @@ class AssetsController extends Controller
 
         return $this->renderTemplate('alt-monitor/images/_view', [
             'item' => $item,
-            'references' => $plugin->getContentUsage()->references($assetId, user: $this->user()),
+            // Alt text per site: the content of this site, measured against this site's alt text.
+            // Alt text all sites share: wherever it is used.
+            'references' => $plugin->getContentUsage()->references($assetId, user: $this->user(), siteId: in_array((int)$item->asset->volumeId, $plugin->getAssetScanner()->sharedAltVolumeIds(), true) ? null : $siteId),
         ] + $this->abilities() + $this->describer());
     }
 

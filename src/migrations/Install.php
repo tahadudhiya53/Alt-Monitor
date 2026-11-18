@@ -98,6 +98,8 @@ class Install extends Migration
         $this->createIndex(null, AuditRecord::TABLE, ['usageStatus']);
         $this->createIndex(null, AuditRecord::TABLE, ['volumeId']);
         $this->createIndex(null, AuditRecord::TABLE, ['siteId', 'altKey']);
+        // Few images are marked decorative; altText() reads them all at once on live pages.
+        $this->createIndex(null, AuditRecord::TABLE, ['decorative']);
         $this->createIndex(null, AuditRecord::TABLE, ['dateScanned']);
         $this->addForeignKey(null, AuditRecord::TABLE, ['assetId'], Table::ELEMENTS, ['id'], 'CASCADE');
         $this->addForeignKey(null, AuditRecord::TABLE, ['siteId'], Table::SITES, ['id'], 'CASCADE', 'CASCADE');

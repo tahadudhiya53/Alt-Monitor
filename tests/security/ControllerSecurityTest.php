@@ -569,6 +569,27 @@ class ControllerSecurityTest extends TestCase
         self::assertCount(2, $listed(['search' => 'twin-', 'check' => 'sameAlt'], $admin));
     }
 
+    public function testThePublishErrorNamesOnlyImagesTheEditorMaySee(): void
+    {
+        $visible = self::savedImage('publish-visible.jpg');
+        $hidden = self::savedImage('publish-hidden.jpg', null, self::$translated);
+        $entry = self::savedEntry('Entry with a hidden image', [self::IMAGES => [$visible->id, $hidden->id]]);
+        AltMonitor::getInstance()->getSettings()->requireAltToPublish = true;
+        $this->asCpRequest();
+        $sites = array_map(static fn($site): string => "editSite:$site->uid", Craft::$app->getSites()->getAllSites());
+        $this->signIn(false, [...self::VIEW, ...$sites, 'viewAssets:' . self::$shared->uid, 'viewPeerAssets:' . self::$shared->uid]);
+
+        $live = \craft\elements\Entry::find()->id($entry->id)->status(null)->one();
+        self::assertNotNull($live);
+        $live->setScenario(\craft\base\Element::SCENARIO_LIVE);
+
+        // Still stopped by both images, but the one in a volume they can't see isn't named.
+        self::assertFalse($live->validate());
+        $error = (string)$live->getFirstError(self::IMAGES);
+        self::assertStringContainsString('These images have no alt text: publish-visible.jpg, 1 image you can’t see.', $error);
+        self::assertStringNotContainsString('publish-hidden', $error);
+    }
+
     public function testListTotalsCountOnlyImagesTheUserMaySee(): void
     {
         $ids = [(int)self::savedImage('peer-one.jpg')->id, (int)self::savedImage('peer-two.jpg')->id];
