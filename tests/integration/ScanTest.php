@@ -17,8 +17,10 @@ use Tahadudhiya\AltMonitor\enums\UsageKind;
 use Tahadudhiya\AltMonitor\enums\UsageStatus;
 use Tahadudhiya\AltMonitor\errors\ScanInProgressException;
 use Tahadudhiya\AltMonitor\jobs\ScanAssetsJob;
+use Tahadudhiya\AltMonitor\models\ListCriteria;
 use Tahadudhiya\AltMonitor\records\AuditRecord;
 use Tahadudhiya\AltMonitor\records\ScanRecord;
+use Tahadudhiya\AltMonitor\records\UsageRecord;
 use Tahadudhiya\AltMonitor\services\AssetScanner;
 use Tahadudhiya\AltMonitor\Tests\_support\AltMonitorFixture;
 use Tahadudhiya\AltMonitor\widgets\CoverageWidget;
@@ -297,6 +299,191 @@ class ScanTest extends TestCase
         self::assertSame([], $byKind($related));
         self::assertSame(UsageStatus::UNUSED->value, $usageOf($related));
         self::assertCount(1, $byKind($nested));
+    }
+
+    /**
+     * @return array<int, bool|null> Whether the content gives each image alt text, by asset ID, as stored for the primary site
+     *         (or all sites, for an Assets field that isn't translated).
+     */
+    private static function altInContent(Asset ...$assets): array
+    {
+        $rows = (new Query())
+            ->select(['assetId', 'altInContent'])
+            ->from(UsageRecord::TABLE)
+            ->where(['assetId' => array_map(static fn(Asset $asset): int => (int)$asset->id, $assets), 'sourceSiteId' => [self::$primarySiteId, null]])
+            ->all();
+
+        return array_map(static fn(?string $value): ?bool => $value === null ? null : (bool)$value, array_column($rows, 'altInContent', 'assetId'));
+    }
+
+    public function testTheUsageScanRecordsWhetherTextGivesEmbeddedImagesAltText(): void
+    {
+        $noAlt = self::savedImage('embedded-no-alt.png', 'A harbour at dawn');
+        $withAlt = self::savedImage('embedded-alt.png', 'A red bicycle');
+        $twice = self::savedImage('embedded-twice.png');
+        $linked = self::savedImage('linked.png');
+        $related = self::savedImage('related-only.png');
+        $body = <<<HTML
+            <p><img src="{asset:{$noAlt->id}:url||https://example.test/a.png}"></p>
+            <figure><img alt="A bike leaning on a wall" src="{asset:{$withAlt->id}:transform:large||https://example.test/b.png}"></figure>
+            <img src="{asset:{$twice->id}:url}" alt="Shown once with text"><img src="{asset:{$twice->id}:url}" alt=" ">
+            <a href="{asset:{$linked->id}:url}">Download the photo</a>
+            HTML;
+        $page = self::savedEntry('Embedded images', [self::IMAGES => [$related->id], self::BODY => $body]);
+
+        $this->scan(ScanType::FULL);
+
+        // Stored as yes or no for <img> tags (any tag without text counts), nothing for links and fields.
+        self::assertSame([(int)$noAlt->id => false, (int)$withAlt->id => true, (int)$twice->id => false, (int)$linked->id => null, (int)$related->id => null], self::altInContent($noAlt, $withAlt, $twice, $linked, $related) + [(int)$related->id => 'not recorded']);
+
+        // The image page reads what the text says now, not what the scan stored.
+        $references = static fn(Asset $asset): array => self::plugin()->getContentUsage()->references((int)$asset->id);
+        self::assertSame([''], $references($noAlt)[0]->contentAlts);
+        self::assertTrue($references($noAlt)[0]->hasNoAltInContent());
+        self::assertSame(['A bike leaning on a wall'], $references($withAlt)[0]->otherAltsInContent('A red bicycle'));
+        self::assertSame([], $references($withAlt)[0]->otherAltsInContent('a bike leaning on a wall.'));
+        self::assertSame(['Shown once with text', ''], $references($twice)[0]->contentAlts);
+        self::assertNull($references($linked)[0]->contentAlts);
+        self::assertNull($references($related)[0]->contentAlts);
+
+        // Fixed in the content: the image page shows it at once, the stored answer at the next usage scan.
+        $page = \craft\elements\Entry::find()->id($page->id)->siteId(self::$primarySiteId)->one();
+        self::assertNotNull($page);
+        $page->setFieldValue(self::BODY, str_replace('<p><img src', '<p><img alt="Boats in a harbour" src', $body));
+        self::assertTrue(Craft::$app->getElements()->saveElement($page));
+        self::assertSame(['Boats in a harbour'], $references($noAlt)[0]->contentAlts);
+        self::assertFalse(self::altInContent($noAlt)[(int)$noAlt->id]);
+
+        $this->scan(ScanType::USAGE);
+        self::assertTrue(self::altInContent($noAlt)[(int)$noAlt->id]);
+    }
+
+    public function testPagesRankContentByTheImagesThatNeedWorkCountingNestedContent(): void
+    {
+        $missingA = self::savedImage('page-missing-a.png');
+        $missingB = self::savedImage('page-missing-b.png');
+        $weak = self::savedImage('page-weak.png', 'IMG_2231');
+        $good = self::savedImage('page-good.png', 'A lighthouse on a cliff');
+        $embedded = self::savedImage('page-embedded.png', 'A dog on a beach');
+        $decorative = self::savedImage('page-divider.png');
+        self::plugin()->getAudits()->setDecorative((int)$decorative->id, self::$primarySiteId, true);
+
+        $home = self::savedEntry('Home', [
+            self::IMAGES => [$missingA->id, $missingB->id, $good->id],
+            self::BODY => "<img src=\"{asset:{$embedded->id}:url}\"> <img src=\"{asset:{$decorative->id}:url}\" alt=\"\">",
+        ]);
+        $block = self::savedBlock($home, [(int)$weak->id]);
+        $about = self::savedEntry('About', [self::IMAGES => [$missingA->id]]);
+        $fine = self::savedEntry('All fine', [self::IMAGES => [$good->id]]);
+
+        $this->scan(ScanType::FULL);
+        $pages = self::plugin()->getPages();
+        $ours = array_flip([(int)$home->id, (int)$about->id, (int)$fine->id, (int)$block->id]);
+        // The host's own content may be listed too: only this test's content is compared.
+        $ranked = array_intersect_key($pages->ranked(self::$primarySiteId, null), $ours);
+
+        // Home: two missing, the nested block's weak one, and one embedded without alt text (the
+        // decorative one is fine without). The block itself is never a row. “All fine” isn't listed.
+        self::assertSame([(int)$home->id, (int)$about->id], array_keys($ranked));
+        self::assertSame(['problems' => 4, 'missing' => 2, 'weak' => 1, 'review' => 0, 'noAltInText' => 1], $ranked[(int)$home->id]);
+        self::assertSame(['problems' => 1, 'missing' => 1, 'weak' => 0, 'review' => 0, 'noAltInText' => 0], $ranked[(int)$about->id]);
+
+        // The list's rows carry the content itself.
+        $items = [];
+        for ($number = 1; $number <= 20 && count($items) < 2; $number++) {
+            $page = $pages->page(self::$primarySiteId, $number, null);
+            foreach ($page->items as $item) {
+                if (isset($ours[$item->elementId])) {
+                    $items[$item->elementId] = $item;
+                }
+            }
+            if ($number >= $page->pageCount()) {
+                break;
+            }
+        }
+        self::assertSame('Home', $items[(int)$home->id]->element?->title);
+        self::assertSame(1, $items[(int)$home->id]->noAltInText);
+
+        // “Fix images” narrows the Images list to every image Home uses, nested ones included.
+        self::assertContains((int)$block->id, $pages->contentIds((int)$home->id));
+        $audits = self::plugin()->getAudits();
+        $listed = static fn(array $params): array => array_map(static fn($item): int => (int)$item->asset->id, $audits->page(ListCriteria::fromParams($params), $audits->viewableVolumeIds(null), null)->items);
+        $expected = array_map('intval', [$missingA->id, $missingB->id, $weak->id, $good->id, $embedded->id, $decorative->id]);
+        self::assertEqualsCanonicalizing($expected, $listed(['usedIn' => (string)$home->id]));
+        self::assertEqualsCanonicalizing([(int)$missingA->id, (int)$missingB->id], $listed(['usedIn' => (string)$home->id, 'status' => 'missing']));
+        self::assertSame([(int)$missingA->id], $listed(['usedIn' => (string)$about->id]));
+
+        // Trashed since the scan: left out of the ranking and the totals at once.
+        self::assertTrue(Craft::$app->getElements()->deleteElement($about));
+        self::assertArrayNotHasKey((int)$about->id, $pages->ranked(self::$primarySiteId, null));
+    }
+
+    public function testPagesCountImagesAsEachSiteShowsThem(): void
+    {
+        $otherSiteId = (int)current(array_diff(Craft::$app->getSites()->getAllSiteIds(), [self::$primarySiteId]));
+
+        if ($otherSiteId === 0) {
+            self::markTestSkipped('Needs a second site.');
+        }
+
+        // Alt text per site: missing in the primary site, given in the other one.
+        $perSite = self::savedImage('per-site.png', null, self::$translated);
+        $inOther = Asset::find()->id($perSite->id)->siteId($otherSiteId)->status(null)->one();
+        self::assertNotNull($inOther);
+        $inOther->alt = 'Ein Leuchtturm';
+        self::assertTrue(Craft::$app->getElements()->saveElement($inOther));
+        // Alt text all sites share, audited in the primary site: missing everywhere.
+        $shared = self::savedImage('shared-missing.png');
+        $entry = self::savedEntry('Site page', [self::IMAGES => [$perSite->id, $shared->id]]);
+
+        $this->scan(ScanType::FULL);
+        $pages = self::plugin()->getPages();
+
+        self::assertSame(2, $pages->ranked(self::$primarySiteId, null)[(int)$entry->id]['missing'] ?? null);
+        self::assertSame(1, $pages->ranked($otherSiteId, null)[(int)$entry->id]['missing'] ?? null);
+
+        // The Images list for that page in the other site shows both images as that site does.
+        $audits = self::plugin()->getAudits();
+        $site = Craft::$app->getSites()->getSiteById($otherSiteId);
+        self::assertNotNull($site);
+        $items = $audits->page(ListCriteria::fromParams(['usedIn' => (string)$entry->id, 'inSite' => $site->handle]), $audits->viewableVolumeIds(null), null)->items;
+        $statuses = [];
+        foreach ($items as $item) {
+            $statuses[(int)$item->asset->id] = $item->status->value;
+        }
+        self::assertSame([(int)$perSite->id => 'good', (int)$shared->id => 'missing'], $statuses + [(int)$perSite->id => 'absent', (int)$shared->id => 'absent']);
+
+        // With alt text per site, the image page shows the content of its own site only, so what
+        // the text says there is compared with that site's alt text.
+        $body = self::savedEntry('Per-site text', [self::BODY => "<img src=\"{asset:{$perSite->id}:url}\">"]);
+        $this->scan(ScanType::USAGE);
+        Db::update(UsageRecord::TABLE, ['sourceSiteId' => self::$primarySiteId], ['assetId' => $perSite->id, 'sourceElementId' => $body->id]);
+        $usage = self::plugin()->getContentUsage();
+        $inText = static fn(?int $siteId): int => count(array_filter($usage->references((int)$perSite->id, siteId: $siteId), static fn($reference): bool => $reference->contentAlts !== null));
+        self::assertSame(1, $inText(self::$primarySiteId));
+        self::assertSame(0, $inText($otherSiteId));
+        // Relations that apply in every site are listed for every site.
+        self::assertCount(1, array_filter($usage->references((int)$perSite->id, siteId: $otherSiteId), static fn($reference): bool => $reference->label === 'Site page'));
+    }
+
+    public function testEachAuditKeepsAKeyOfItsAltTextForFindingImagesThatShareIt(): void
+    {
+        $first = self::savedImage('key-a.png', ' Team  Photo ');
+        $second = self::savedImage('key-b.png', 'team photo');
+        $none = self::savedImage('key-c.png');
+        $key = static fn(Asset $asset): ?string => self::audits($asset)[self::$primarySiteId]['altKey'] ?? null;
+
+        self::assertNotNull($key($first));
+        self::assertSame($key($first), $key($second));
+        self::assertNull($key($none));
+        // Only a hash: the alt text itself is never stored.
+        self::assertSame(40, strlen((string)$key($first)));
+
+        // Changed alt text changes the key when the image is saved.
+        $fresh = self::fresh($second);
+        $fresh->alt = 'A different photo';
+        self::assertTrue(Craft::$app->getElements()->saveElement($fresh));
+        self::assertNotSame($key($first), $key($second));
     }
 
     public function testImagesScannedSinceTheLastUsageScanHaveUnknownUsage(): void

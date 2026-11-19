@@ -20,6 +20,7 @@ use craft\db\ActiveRecord;
  * @property bool $decorative
  * @property string $usageStatus
  * @property string $altHash
+ * @property string|null $altKey
  * @property string $dateScanned
  * @property string|null $dateAltSaved
  * @property string $dateCreated

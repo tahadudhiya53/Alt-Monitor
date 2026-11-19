@@ -3,11 +3,13 @@
 namespace Tahadudhiya\AltMonitor\controllers;
 
 use Craft;
+use craft\base\ElementInterface;
 use craft\elements\Asset;
 use craft\web\Controller;
 use InvalidArgumentException;
 use Tahadudhiya\AltMonitor\AltMonitor;
 use Tahadudhiya\AltMonitor\enums\AltStatus;
+use Tahadudhiya\AltMonitor\enums\ListCheck;
 use Tahadudhiya\AltMonitor\enums\SuggestionStatus;
 use Tahadudhiya\AltMonitor\enums\UsageStatus;
 use Tahadudhiya\AltMonitor\errors\AltTextException;
@@ -66,6 +68,8 @@ class AssetsController extends Controller
             'statuses' => AltStatus::cases(),
             'usageStatuses' => UsageStatus::cases(),
             'suggestionStatuses' => SuggestionStatus::cases(),
+            'checks' => ListCheck::cases(),
+            'usedInElement' => $this->usedInElement($criteria),
             'failures' => $this->failures(),
             // For the empty list: a scan already on its way, rather than a button to start one.
             'activeScan' => $stats->audited === 0 ? AltMonitor::getInstance()->getScans()->active() : null,
@@ -116,7 +120,9 @@ class AssetsController extends Controller
 
         return $this->renderTemplate('alt-monitor/images/_view', [
             'item' => $item,
-            'references' => $plugin->getContentUsage()->references($assetId, user: $this->user()),
+            // Alt text per site: the content of this site, measured against this site's alt text.
+            // Alt text all sites share: wherever it is used.
+            'references' => $plugin->getContentUsage()->references($assetId, user: $this->user(), siteId: in_array((int)$item->asset->volumeId, $plugin->getAssetScanner()->sharedAltVolumeIds(), true) ? null : $siteId),
         ] + $this->abilities() + $this->describer());
     }
 
@@ -441,6 +447,20 @@ class AssetsController extends Controller
             'canScan' => $user->checkPermission(AltMonitor::PERMISSION_RUN_SCANS),
             'serverAi' => AltMonitor::getInstance()->getSuggestions()->generatesOnServer(),
         ];
+    }
+
+    /**
+     * The content the list is narrowed to, if the user may see it.
+     */
+    private function usedInElement(ListCriteria $criteria): ?ElementInterface
+    {
+        if ($criteria->usedIn === null) {
+            return null;
+        }
+
+        $element = Craft::$app->getElements()->getElementById($criteria->usedIn, null, $criteria->siteId ?? '*');
+
+        return $element !== null && Craft::$app->getElements()->canView($element, $this->user()) ? $element : null;
     }
 
     /**

@@ -1,0 +1,108 @@
+{% extends '_layouts/cp' %}
+
+{#
+ # Content ranked by how many of its images need work: “Home – 6 missing”. Each row leads to the
+ # Images list narrowed to that content, where the images are fixed.
+ #}
+{% set title = 'Pages'|t('alt-monitor') %}
+{% set bodyClass = 'altmonitor-page' %}
+{% set selectedSubnavItem = 'pages' %}
+{% do view.registerAssetBundle('Tahadudhiya\\AltMonitor\\web\\assets\\cp\\CpAsset') %}
+
+{% block content %}
+    {% import 'alt-monitor/_macros' as macros %}
+
+    <p class="altmonitor-intro light">{{ 'Entries and other content, most images to fix first. Open one to fix its images.'|t('alt-monitor') }}</p>
+
+    {% if craft.app.isMultiSite and usageChecked %}
+        <form method="get" action="{{ url('alt-monitor/pages') }}" class="altmonitor-toolbar" id="altmonitor-page-filters" data-altmonitor-autofilter>
+            <div class="altmonitor-toolbar-row">
+                <div class="altmonitor-filter-boxes">
+                    <div class="select">
+                        <select name="inSite" aria-label="{{ 'Site'|t('app') }}">
+                            {% for option in craft.app.sites.getAllSites() %}
+                                <option value="{{ option.handle }}" {{ site and site.id == option.id ? 'selected' }}>{{ option.name|t('site') }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <noscript><button type="submit" class="btn">{{ 'Filter'|t('alt-monitor') }}</button></noscript>
+                </div>
+            </div>
+        </form>
+    {% endif %}
+
+    {% if not usageChecked %}
+        <div class="zilch altmonitor-empty" id="altmonitor-no-pages">
+            {% if activeScan %}
+                <p>{{ 'Scanning. Pages appear here once AltMonitor has found where images are used.'|t('alt-monitor') }}</p>
+                <a class="btn" href="{{ url('alt-monitor') }}">{{ 'See progress'|t('alt-monitor') }}</a>
+            {% elseif canScan %}
+                <p>{{ 'To list pages, AltMonitor first finds where images are used. This reads your content and changes nothing.'|t('alt-monitor') }}</p>
+                <form method="post">
+                    {{ csrfInput() }}
+                    {{ actionInput('alt-monitor/scan/start') }}
+                    <button type="submit" class="btn submit" name="type" value="usage">{{ 'Find where images are used'|t('alt-monitor') }}</button>
+                </form>
+            {% else %}
+                <p>{{ 'Where images are used hasn’t been checked yet. Someone who can run scans can start one from the AltMonitor dashboard.'|t('alt-monitor') }}</p>
+            {% endif %}
+        </div>
+    {% elseif page.items is empty and page.total > 0 %}
+        {{ macros.pastEnd(page, criteria, 'alt-monitor/pages') }}
+    {% elseif page.items is empty %}
+        <div class="zilch altmonitor-empty" id="altmonitor-no-pages">
+            <p>{{ 'No content uses an image that needs work.'|t('alt-monitor') }}</p>
+        </div>
+    {% else %}
+        <div class="tableview">
+            <div class="tablepane">
+                <table class="data fullwidth altmonitor-table" id="altmonitor-pages">
+                    <thead>
+                        <tr>
+                            <th scope="col">{{ 'Content'|t('alt-monitor') }}</th>
+                            <th scope="col">{{ 'Images to fix'|t('alt-monitor') }}</th>
+                            <th scope="col">{{ 'Why'|t('alt-monitor') }}</th>
+                            <th scope="col"><span class="visually-hidden">{{ 'Actions'|t('alt-monitor') }}</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in page.items %}
+                            {% set images = url('alt-monitor/images', {usedIn: item.elementId, inSite: craft.app.isMultiSite ? site.handle : null}) %}
+                            <tr data-element-id="{{ item.elementId }}">
+                                <th scope="row">
+                                    {% if item.element %}
+                                        <a href="{{ images }}">{{ item.element.getUiLabel() }}</a>
+                                        <div class="smalltext light">{{ item.element.displayName() }}</div>
+                                    {% else %}
+                                        <span class="light">{{ 'Content you can’t see'|t('alt-monitor') }}</span>
+                                    {% endif %}
+                                </th>
+                                <td data-problems="{{ item.problems }}"><strong>{{ item.problems|number }}</strong></td>
+                                <td>
+                                    <div class="altmonitor-counts">
+                                        {% if item.missing %}<span class="status-label red" data-count="missing"><span class="status"></span><span class="status-label-text">{{ '{count, number} missing'|t('alt-monitor', {count: item.missing}) }}</span></span>{% endif %}
+                                        {% if item.weak %}<span class="status-label orange" data-count="weak"><span class="status"></span><span class="status-label-text">{{ '{count, number} weak'|t('alt-monitor', {count: item.weak}) }}</span></span>{% endif %}
+                                        {% if item.review %}<span class="status-label blue" data-count="review"><span class="status"></span><span class="status-label-text">{{ '{count, number} to review'|t('alt-monitor', {count: item.review}) }}</span></span>{% endif %}
+                                        {% if item.noAltInText %}<span class="status-label red" data-count="noAltInText"><span class="status"></span><span class="status-label-text">{{ '{count, number} embedded without alt text'|t('alt-monitor', {count: item.noAltInText}) }}</span></span>{% endif %}
+                                    </div>
+                                </td>
+                                <td class="altmonitor-row-links">
+                                    {% if item.element %}
+                                        <a class="btn small" href="{{ images }}">{{ 'Fix images'|t('alt-monitor') }}</a>
+                                        {% if item.element.getCpEditUrl() %}<a class="go smalltext" href="{{ item.element.getCpEditUrl() }}">{{ 'Edit'|t('app') }}</a>{% endif %}
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        {{ macros.pagination(page, criteria, 'alt-monitor/pages', 'pages'|t('alt-monitor')) }}
+    {% endif %}
+
+    {% if usageChecked %}
+        <p class="light smalltext">{{ 'Counts images in Craft fields and rich text, as the last usage scan found them. Images a template adds aren’t counted.'|t('alt-monitor') }}</p>
+    {% endif %}
+{% endblock %}

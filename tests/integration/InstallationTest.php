@@ -89,7 +89,7 @@ class InstallationTest extends TestCase
         self::assertSame('alt-monitor', $plugin->id);
         self::assertTrue(Craft::$app->getPlugins()->isPluginEnabled('alt-monitor'));
 
-        foreach (['aiProviders', 'analyzer', 'altTextEditor', 'assetScanner', 'audits', 'contentUsage', 'scans', 'suggestionGenerator', 'suggestions'] as $id) {
+        foreach (['aiProviders', 'analyzer', 'altTextEditor', 'assetScanner', 'audits', 'contentUsage', 'entryCheck', 'imageExport', 'pages', 'scans', 'suggestionGenerator', 'suggestions', 'templateCheck'] as $id) {
             self::assertTrue($plugin->has($id), "The $id service is not registered.");
         }
 
@@ -112,8 +112,8 @@ class InstallationTest extends TestCase
         $this->plugin();
 
         self::assertSame([], $this->navFor(['accessCp']));
-        self::assertSame(['dashboard', 'images', 'suggestions'], $this->navFor(['accessCp', 'accessPlugin-alt-monitor', AltMonitor::PERMISSION_VIEW]));
-        self::assertSame(['dashboard', 'images', 'suggestions', 'settings'], $this->navFor(['accessCp', 'accessPlugin-alt-monitor', AltMonitor::PERMISSION_VIEW, AltMonitor::PERMISSION_MANAGE_SETTINGS]));
+        self::assertSame(['dashboard', 'images', 'pages', 'suggestions'], $this->navFor(['accessCp', 'accessPlugin-alt-monitor', AltMonitor::PERMISSION_VIEW]));
+        self::assertSame(['dashboard', 'images', 'pages', 'suggestions', 'settings'], $this->navFor(['accessCp', 'accessPlugin-alt-monitor', AltMonitor::PERMISSION_VIEW, AltMonitor::PERMISSION_MANAGE_SETTINGS]));
     }
 
     public function testEveryTemplateCompiles(): void
@@ -122,7 +122,7 @@ class InstallationTest extends TestCase
         $view = Craft::$app->getView();
         $view->setTemplateMode(View::TEMPLATE_MODE_CP);
 
-        foreach (['_dashboard', '_macros', 'images/_index', 'images/_view', 'suggestions/_index', 'settings/_index'] as $template) {
+        foreach (['_dashboard', '_entry-sidebar', '_macros', 'images/_index', 'images/_view', 'pages/_index', 'suggestions/_index', 'settings/_index'] as $template) {
             self::assertSame("alt-monitor/$template", $view->getTwig()->load("alt-monitor/$template")->getTemplateName());
         }
 
@@ -165,7 +165,13 @@ class InstallationTest extends TestCase
 
         $audits = $schema->getTableSchema(AuditRecord::TABLE);
         self::assertNotNull($audits);
-        self::assertSame(['id', 'assetId', 'siteId', 'volumeId', 'scanId', 'altStatus', 'issues', 'decorative', 'usageStatus', 'altHash', 'dateScanned', 'dateAltSaved', 'dateCreated', 'dateUpdated', 'uid'], $audits->getColumnNames());
+        self::assertSame(['id', 'assetId', 'siteId', 'volumeId', 'scanId', 'altStatus', 'issues', 'decorative', 'usageStatus', 'altHash', 'altKey', 'dateScanned', 'dateAltSaved', 'dateCreated', 'dateUpdated', 'uid'], $audits->getColumnNames());
         self::assertCount(4, $audits->foreignKeys);
+
+        $usages = $schema->getTableSchema(UsageRecord::TABLE);
+        self::assertNotNull($usages);
+        self::assertSame(['id', 'usageKey', 'assetId', 'sourceElementId', 'sourceSiteId', 'fieldId', 'kind', 'altInContent', 'dateCreated', 'dateUpdated', 'uid'], $usages->getColumnNames());
+        // Empty for Assets fields and links: only <img> tags in text have an answer.
+        self::assertTrue($usages->getColumn('altInContent')?->allowNull);
     }
 }

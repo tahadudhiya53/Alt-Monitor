@@ -24,6 +24,26 @@
     {% endif %}
 {% endmacro %}
 
+{# What an image's own alt text doesn't show: other images with the same alt text, and rich text
+ # showing it without alt text. Links narrow the Images list, or go to where it is used. #}
+{% macro otherChecks(item) %}
+    {% if item.sameAltCount or item.noAltInTextCount %}
+        {% set siteHandle = craft.app.isMultiSite ? craft.app.sites.getSiteById(item.siteId).handle : null %}
+        <div class="altmonitor-other-checks smalltext">
+            {% if item.sameAltCount %}
+                <a href="{{ url('alt-monitor/images', {check: 'sameAlt', search: item.asset.alt|slice(0, 255), inSite: siteHandle}) }}" data-check="sameAlt">
+                    {{- 'Same alt text as {count, number} other {count, plural, =1{image} other{images}}'|t('alt-monitor', {count: item.sameAltCount}) -}}
+                </a>
+            {% endif %}
+            {% if item.noAltInTextCount %}
+                <a href="{{ url('alt-monitor/images/' ~ item.asset.id ~ '/' ~ item.siteId) }}#usage" data-check="noAltInText">
+                    {{- 'No alt text where embedded in text ({count, number})'|t('alt-monitor', {count: item.noAltInTextCount}) -}}
+                </a>
+            {% endif %}
+        </div>
+    {% endif %}
+{% endmacro %}
+
 {% macro pagination(page, criteria, path, noun) %}
     {% if page.total > 0 %}
         <nav class="flex pagination" aria-label="{{ 'Pages'|t('alt-monitor') }}">

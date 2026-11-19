@@ -47,6 +47,8 @@ Queue job (orchestration: one bounded batch, then push the next)
 | `assetsUi` | `services/AssetsUi` | Craft's own asset screens: the editor sidebar box (`_sidebar.twig`) and the Assets index column. Never writes |
 | `entryCheck` | `services/EntryCheck` | Craft's entry editor: the sidebar box (`_entry-sidebar.twig`) and the publish check. Reads the entry's images from its field values. Never writes |
 | `imageExport` | `services/ImageExport` | The Images list as CSV (`Audits::all()`: the list's query, every page, batches of 200). Never writes |
+| `pages` | `services/Pages` | The Pages list: `ranked()` (usages × problem audits in one site, grouped by top-level owner via `roots()`), `page()`, `contentIds()` (an element + live nested descendants, for `usedIn`), `auditInSite()`, `usageChecked()`. Never writes |
+| `templateCheck` | `services/TemplateCheck` | The front end: `altAttribute()` behind the `altText()` Twig function (`web/twig/Extension`), and the dev mode check (`findProblems()`, `withWarnings()`: pure, static). Never writes |
 | `aiProviders` | `services/AiProviders` | Builds the (Ollama) provider from settings; `EVENT_DEFINE_PROVIDER` lets code replace it; `browserConfig()` for the browser; `describerConfig()` (Describe buttons, null with Ollama) and `translatorConfig()` (Translate, also with Ollama) |
 
 ### Describing images (default: in the browser)
@@ -144,7 +146,7 @@ suggestion walk), `ScanContentUsageJob` (relations phase, then reference tags ph
 `Audits::applyUsageStatuses()`); `GenerateAltTextJob` (given targets, or a walk of audits wanting
 suggestions, 5 per job, TTR scaled by `aiTimeout`).
 
-Controllers: `Dashboard` (index, progress JSON), `Model` (the image model page), `Scan` (start),
+Controllers: `Dashboard` (index, progress JSON), `Model` (the image model page), `Pages` (index), `Scan` (start),
 `Assets` (index, export, view, check, save, decorative, bulk: save / approve / generate, sidebar: the
 editor box's HTML again), `Entries` (sidebar: the entry box's HTML again), `Suggestions` (index, approve, reject, bulk-approve, image, next, store,
 translate, regenerate, generate-all), `Settings` (index, save, test-connection). Shared input reading in the
@@ -170,7 +172,7 @@ src/
   conditions/               AltStatusConditionRule (the Assets index filter)
   console/controllers/      ScanController (craft alt-monitor/scan)
   controllers/              CP controllers + RequestInput trait
-  enums/                    AltStatus, AltIssue, UsageStatus, UsageKind, ScanType, ScanStatus, SuggestionSource, SuggestionStatus
+  enums/                    AltStatus, AltIssue, ListCheck, UsageStatus, UsageKind, ScanType, ScanStatus, SuggestionSource, SuggestionStatus
   errors/                   AiProviderException, AltTextException, ScanInProgressException
   events/                   DefineAiProviderEvent
   jobs/                     BaseScanJob, ScanAssetsJob, ScanContentUsageJob, GenerateAltTextJob
@@ -179,8 +181,9 @@ src/
   records/                  one per table, schema only
   services/                 see table above
   widgets/                  CoverageWidget (Craft's dashboard)
-  templates/                _dashboard, _describer, _entry-sidebar, _macros, _sidebar, _widget, images/{_index,_view}, model/_index, suggestions/_index, settings/_index
+  templates/                _dashboard, _describer, _entry-sidebar, _macros, _sidebar, _widget, images/{_index,_view}, model/_index, pages/_index, suggestions/_index, settings/_index
   translations/en/alt-monitor.php
+  web/twig/Extension.php    the altText() Twig function (site and CP templates)
   web/assets/cp/            CpAsset + dist/cp.css, cp.js, describe-worker.js, vendor/transformers.min.js (no build step)
 tests/
   unit/                     PluginTest, RulesTest, AiTest (no Craft app)
@@ -195,11 +198,18 @@ tests/
 - `altmonitor_audits` — one row per (asset, site); unique `(assetId, siteId)`. `altStatus`,
   `issues` (comma-separated `AltIssue`s), `decorative` (set by people, kept by scans),
   `usageStatus`, `altHash` (sha1 of alt, filename, title, volume, decorative: unchanged rows are
-  only touched), `dateScanned` (used to prune after full scans), `dateAltSaved`.
+  only touched), `altKey` (sha1 of the alt text alone, `Audits::altKeyFor()`: spaces collapsed,
+  trimmed, lower case in PHP so every database groups alike; null without alt text; indexed with
+  `siteId`), `dateScanned` (used to prune after full scans), `dateAltSaved`. `decorative` is
+  indexed for `altText()`.
 - `altmonitor_suggestions` — one current suggestion per (asset, site); regenerating replaces it.
   Status `queued` doubles as the duplicate-generation reservation (expires after an hour).
 - `altmonitor_usages` — one row per (asset, source element, source site, field, kind), keyed by a
-  hash; rows not refreshed by a usage scan are pruned by `dateUpdated`.
+  hash; rows not refreshed by a usage scan are pruned by `dateUpdated`. `altInContent` (nullable
+  boolean): for reference tags inside `<img src>`, whether every such tag in that content gives
+  alt text; null for relations and links. Only yes/no, never the text. Added to `Install` (no new
+  migration before release); an existing dev install gets it with a plain `addColumn`, not a
+  reinstall, which would lose audits and suggestions.
 - `altmonitor_scans` — scan runs, progress and the totals at completion.
 - FKs cascade from `elements`, `sites`, `volumes`, so hard deletes need no code. Alt text is never
   copied into these tables.
@@ -253,6 +263,59 @@ tests/
 - **Flashes** are read only when a session exists (`RequestInput::failures()`), since the console
   app running tests has none.
 
+### Pages, and checks beyond one image
+
+- **Pages** (`PagesController`, route `alt-monitor/pages`, view permission, nav after Images):
+  one site at a time (`inSite`, default the primary site or the first one the user may edit).
+  `Pages::ranked()` joins usages (in the site: `sourceSiteId` null or the site, the source
+  element present in `elements_sites` there) with audits as the site shows them
+  (`auditInSite()`: that site's, or the primary site's for shared alt text), keeps problem rows
+  (missing / weak / review, or `altInContent = false` and not decorative), applies
+  `visibleCondition()`, then in PHP maps each source to its top-level owner (`roots()`: walks
+  `elements_owners` to live owners, max 10 levels; nested elements whose owners are all drafts,
+  revisions or trashed are dropped) and counts distinct images per status. Ranked by problems,
+  missing, weak, then ID; paged in PHP; elements loaded a type at a time; content the user can't
+  view is listed without title or link. Empty state until `usageChecked()`.
+- **`usedIn`** (`ListCriteria`, an element ID): Images list narrowed to images used in that content
+  or anything nested in it (`contentIds()`). With `inSite` it means “as that site shows them”
+  (`auditInSite()`), not `audits.siteId` alone, so shared-alt images appear on other sites' pages.
+- **`check`** (`ListCriteria`, `enums/ListCheck`): `sameAlt` joins `sameAltGroups()` (per site,
+  `audits.altKey`, more than one image, decorative and empty left out, only images the user may
+  see); the list is then ordered by that key. Never compare alt text in SQL (`LOWER(TRIM())`
+  can't use an index and folds case differently on MySQL and PostgreSQL). `noAltInText` needs a usage with
+  `altInContent = false` in the audit's site (any site for shared alt text), not decorative.
+  Per-row counts (`AuditItem::$sameAltCount`, `$noAltInTextCount`) are read for the page in two
+  queries (`sameAltCounts()`: a self-join on `(siteId, altKey)`; `noAltInTextCounts()`);
+  `_macros.otherChecks(item)` shows them on the list and the image page. Search also matches
+  `alts.alt`, with `ilike` on PostgreSQL. `usedIn` is capped at 2147483647 (PostgreSQL refuses a
+  larger integer). `Pages::ranked()` reads rows with `batch()`, keeps a bit mask per (source,
+  image), splits `IN` lists into chunks of 1000, and drops roots that aren't live in the site
+  (`liveInSite()`) before counting, so totals match the rows.
+- Alt text is read from `assets_sites` (where Craft keeps it per site for every volume), never
+  copied. `ContentUsageScanner::embeddedAlts()` (pure, static) reads `<img>` tags in content (JSON
+  text values or plain HTML), keyed by the asset ID in `src`; links (`href`) are not images. The
+  image page's **Alt text there** column reads the content again (`references()` →
+  `UsageReference::$contentAlts`), so it is current, and hides it for content the user can't view.
+  For volumes with alt text per site, `actionView()` passes `siteId` to `references()` (content
+  of that site plus relations without a site); shared alt text shows every site. Don't use
+  `andFilterWhere()` for a condition with a `null` value: it drops it.
+
+### Front-end templates
+
+`altText(asset)` (`TemplateCheck::altAttribute()`) returns `Markup`: `alt="…"` (alt text on one
+line, encoded once), or `alt=""` when the image is decorative (`isDecorative()`: every decorative
+audit read in one query per page render, matched on `AssetScanner::auditSiteId()`; reset before
+each page render and by `reset()`), so a page printing many images doesn't query per image. No alt text, or not an
+asset, also gives `alt=""` (never an error on a live page); in dev mode it adds
+`data-altmonitor-no-alt-text="<id>"` (`NO_TEXT_MARKER`) so the check can name it.
+`registerTemplateHelpers()` handles `View::EVENT_AFTER_RENDER_PAGE_TEMPLATE`; `appliesTo()` needs
+dev mode, `templateCheck` (config file only, not in `EDITABLE`), site template mode, a site
+request (`getIsSiteRequest()`, which is false for console requests; don't use
+`getIsConsoleRequest()`, true for any request under CLI, tests included), and a template whose
+extension is HTML or none. `withWarnings()` adds one `<script>` of `console.warn()` calls before
+the last `</body>` only when it finds a problem (JSON with `JSON_HEX_*`, so it can't close the
+script). Failures are logged, never break the page. Images added by JavaScript aren't seen.
+
 ### Craft's own asset screens
 
 `AltMonitor::registerAssetScreens()`: `EVENT_DEFINE_SIDEBAR_HTML` appends the box from
@@ -303,7 +366,8 @@ not propagating/resaving/a revision/nested (`getPrimaryOwnerId()`; the owner che
 images), and the request is a CP request (console requests are never CP; don't use
 `getIsConsoleRequest()`, which is true for any CLI process, tests included). Only **missing** alt
 blocks; weak never does. One error per top-level field handle, so Craft shows it at the field and
-in its error summary.
+in its error summary. Every image counts, but the error names only those the person saving may see
+(`AssetScanner::userMay()`); the rest are counted (“1 image you can’t see”).
 
 **Demo content:** `seed-alt-monitor-entries.php` in the host project root (`ddev exec php
 seed-alt-monitor-entries.php [--remove]`) creates 7 drawn images, a section and 4 entries; re-running
@@ -365,6 +429,9 @@ lock references).
   global set in one rolled-back transaction, a savepoint per test, project config never written
   to YAML, real PNGs created with GD in a temp dir. Pushed jobs are caught via
   `Queue::EVENT_AFTER_PUSH` and run with `runJobs()`.
+- Front-end checks use `useSiteRequest()` and `withDevMode()` (SuggestionsTest), which put
+  `devMode` and `templateCheck` back. On the DDEV host, `CRAFT_DEV_MODE` comes from `.env` and
+  overrides `general.php`; PHP-FPM workers keep the old value until reloaded.
 - Controllers run through `runAction()` with a real CSRF token; pages are checked by rendering
   their `content` block (`html()`), because the CP layout needs a web session.
 - Ollama is always mocked with Guzzle's `MockHandler` via `AiProviders::$httpHandler`.

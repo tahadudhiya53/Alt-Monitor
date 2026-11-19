@@ -156,18 +156,31 @@ class EntryCheck extends Component
         }
 
         $missing = [];
+        // Every image counts, but only those the person saving may see are named.
+        $user = Craft::$app->getUser()->getIdentity();
+        $scanner = AltMonitor::getInstance()->getAssetScanner();
 
         foreach ($this->images($element, null)['images'] as $image) {
             if (!$image->decorative && $image->status === AltStatus::MISSING) {
-                $missing[$image->fieldHandle][] = $image->asset->getFilename();
+                $missing[$image->fieldHandle] ??= ['names' => [], 'hidden' => 0];
+
+                if (!$user instanceof User || $scanner->userMay($image->asset, $user)) {
+                    $missing[$image->fieldHandle]['names'][] = $image->asset->getFilename();
+                } else {
+                    $missing[$image->fieldHandle]['hidden']++;
+                }
             }
         }
 
         // At the field holding them, so the editor shows it there and in the error summary.
-        foreach ($missing as $handle => $filenames) {
+        foreach ($missing as $handle => ['names' => $names, 'hidden' => $hidden]) {
+            if ($hidden > 0) {
+                $names[] = Craft::t('alt-monitor', '{count, plural, =1{1 image you can’t see} other{# images you can’t see}}', ['count' => $hidden]);
+            }
+
             $element->addError($handle, Craft::t('alt-monitor', '{count, plural, =1{This image has} other{These images have}} no alt text: {names}. Add alt text or mark {count, plural, =1{it} other{them}} decorative before publishing.', [
-                'count' => count($filenames),
-                'names' => implode(', ', $filenames),
+                'count' => count($names) + max(0, $hidden - 1),
+                'names' => implode(', ', $names),
             ]));
         }
     }

@@ -100,6 +100,12 @@ class Settings extends Model
      */
     public array $contextFieldHandles = ['caption', 'description'];
 
+    /**
+     * Whether, in dev mode, site pages warn in the browser console about `<img>` tags printed
+     * without an `alt` attribute. Never runs outside dev mode. Config file only.
+     */
+    public bool $templateCheck = true;
+
     /** The endpoint with any environment variable resolved. */
     public function endpoint(): string
     {
@@ -125,7 +131,7 @@ class Settings extends Model
             [['ollamaModel'], 'match', 'pattern' => '/^[a-z0-9][a-z0-9._\-\/]*(:[a-z0-9._\-]+)?$/i', 'message' => Craft::t('alt-monitor', 'Use only letters, numbers, “.”, “-”, “_” and “/”, plus an optional “:tag”.')],
             [['ollamaModel', 'browserModel'], 'string', 'max' => 100],
             [['browserModelHost', 'browserWasmPath'], 'url', 'validSchemes' => ['https', 'http']],
-            [['aiEnabled', 'auditOnSave', 'requireAltToPublish', 'scanUsageAfterFullScan', 'suggestAfterScan', 'fallbackToRules'], 'boolean'],
+            [['aiEnabled', 'auditOnSave', 'requireAltToPublish', 'scanUsageAfterFullScan', 'suggestAfterScan', 'fallbackToRules', 'templateCheck'], 'boolean'],
             [['aiTimeout'], 'integer', 'min' => 10, 'max' => 600],
             [['scanBatchSize'], 'integer', 'min' => 10, 'max' => 1000],
             [['additionalGenericTerms', 'contextFieldHandles'], 'filter', 'filter' => [self::class, 'normalizeList']],

@@ -18,7 +18,7 @@
 {% block content %}
     {% import 'alt-monitor/_macros' as macros %}
     {% set canAct = canEditAlt or canApprove or canGenerate %}
-    {% set narrowed = criteria.search or criteria.usage or criteria.suggestion or criteria.siteId or criteria.volumeId %}
+    {% set narrowed = criteria.search or criteria.usage or criteria.suggestion or criteria.siteId or criteria.volumeId or criteria.check or criteria.usedIn %}
 
     {# ---------- Toolbar: status pills, filter boxes (applied on change), search ---------- #}
     {% set tabs = [
@@ -30,6 +30,7 @@
     ] %}
     <form method="get" action="{{ url('alt-monitor/images') }}" class="altmonitor-toolbar" role="search" id="altmonitor-image-filters" data-altmonitor-autofilter>
         {% if criteria.status %}{{ hiddenInput('status', criteria.status.value) }}{% endif %}
+        {% if criteria.usedIn %}{{ hiddenInput('usedIn', criteria.usedIn) }}{% endif %}
         <div class="altmonitor-toolbar-row">
             <nav class="altmonitor-tabs" aria-label="{{ 'Alt text status'|t('alt-monitor') }}">
                 {% for tab in tabs %}
@@ -57,6 +58,14 @@
                         <option value="none" {{ criteria.suggestion == 'none' ? 'selected' }}>{{ 'No suggestion'|t('alt-monitor') }}</option>
                         {% for status in suggestionStatuses %}
                             <option value="{{ status.value }}" {{ criteria.suggestion == status.value ? 'selected' }}>{{ status.label() }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="select">
+                    <select name="check" aria-label="{{ 'More checks'|t('alt-monitor') }}">
+                        <option value="">{{ 'More checks'|t('alt-monitor') }}</option>
+                        {% for check in checks %}
+                            <option value="{{ check.value }}" {{ criteria.check == check ? 'selected' }}>{{ check.label() }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -93,10 +102,22 @@
 
         <div class="altmonitor-search texticon search icon">
             <input type="search" class="text fullwidth" name="search" value="{{ criteria.search }}" maxlength="255"
-                   placeholder="{{ 'Search file names and titles'|t('alt-monitor') }}"
-                   aria-label="{{ 'Search file names and titles'|t('alt-monitor') }}">
+                   placeholder="{{ 'Search file names, titles and alt text'|t('alt-monitor') }}"
+                   aria-label="{{ 'Search file names, titles and alt text'|t('alt-monitor') }}">
         </div>
     </form>
+
+    {% if criteria.usedIn %}
+        <p class="altmonitor-used-in" id="altmonitor-used-in">
+            {% if usedInElement %}
+                {{ 'Images used in {name}'|t('alt-monitor', {name: usedInElement.getUiLabel()}) }}
+            {% else %}
+                {{ 'Images used in content you can’t see'|t('alt-monitor') }}
+            {% endif %}
+            <a href="{{ url('alt-monitor/images', criteria.params({usedIn: null, page: null})) }}">{{ 'Show all images'|t('alt-monitor') }}</a>
+            <a href="{{ url('alt-monitor/pages', {inSite: criteria.siteId ? craft.app.sites.getSiteById(criteria.siteId).handle : null}) }}">{{ 'Back to pages'|t('alt-monitor') }}</a>
+        </p>
+    {% endif %}
 
     {{ macros.failures(failures) }}
 
@@ -174,6 +195,7 @@
                                             {{ macros.altStatus(item.status) }}
                                             {% if item.status.value != 'missing' %}{% for issue in item.issues %}<span class="smalltext light">{{ issue.label() }}</span>{% endfor %}{% endif %}
                                         </div>
+                                        {{ macros.otherChecks(item) }}
                                         {% if editable %}
                                             {# A text box drops line breaks (Craft's Alt Text field allows them): they are dropped here
                                              # too, so the box and its original match and an untouched row isn't seen as changed. #}

@@ -18,11 +18,13 @@ use craft\events\RegisterConditionRulesEvent;
 use craft\events\RegisterElementTableAttributesEvent;
 use craft\events\RegisterUrlRulesEvent;
 use craft\events\RegisterUserPermissionsEvent;
+use craft\events\TemplateEvent;
 use craft\helpers\UrlHelper;
 use craft\services\Dashboard;
 use craft\services\Elements;
 use craft\services\UserPermissions;
 use craft\web\UrlManager;
+use craft\web\View;
 use Tahadudhiya\AltMonitor\ai\Translations;
 use Tahadudhiya\AltMonitor\conditions\AltStatusConditionRule;
 use Tahadudhiya\AltMonitor\models\Settings;
@@ -35,9 +37,12 @@ use Tahadudhiya\AltMonitor\services\Audits;
 use Tahadudhiya\AltMonitor\services\ContentUsageScanner;
 use Tahadudhiya\AltMonitor\services\EntryCheck;
 use Tahadudhiya\AltMonitor\services\ImageExport;
+use Tahadudhiya\AltMonitor\services\Pages;
 use Tahadudhiya\AltMonitor\services\Scans;
 use Tahadudhiya\AltMonitor\services\SuggestionGenerator;
 use Tahadudhiya\AltMonitor\services\Suggestions;
+use Tahadudhiya\AltMonitor\services\TemplateCheck;
+use Tahadudhiya\AltMonitor\web\twig\Extension;
 use Tahadudhiya\AltMonitor\widgets\CoverageWidget;
 use yii\base\Event;
 use yii\base\Model as YiiModel;
@@ -61,9 +66,11 @@ use yii\base\Model as YiiModel;
  * @property-read EntryCheck $entryCheck
  * @property-read ImageExport $imageExport
  * @property-read ContentUsageScanner $contentUsage
+ * @property-read Pages $pages
  * @property-read Scans $scans
  * @property-read SuggestionGenerator $suggestionGenerator
  * @property-read Suggestions $suggestions
+ * @property-read TemplateCheck $templateCheck
  */
 class AltMonitor extends Plugin
 {
@@ -104,9 +111,11 @@ class AltMonitor extends Plugin
                 'contentUsage' => ['class' => ContentUsageScanner::class],
                 'entryCheck' => ['class' => EntryCheck::class],
                 'imageExport' => ['class' => ImageExport::class],
+                'pages' => ['class' => Pages::class],
                 'scans' => ['class' => Scans::class],
                 'suggestionGenerator' => static fn(): SuggestionGenerator => new SuggestionGenerator(self::getInstance()->getAnalyzer()),
                 'suggestions' => ['class' => Suggestions::class],
+                'templateCheck' => ['class' => TemplateCheck::class],
             ],
         ];
     }
@@ -139,6 +148,7 @@ class AltMonitor extends Plugin
             $event->rules['alt-monitor/images'] = 'alt-monitor/assets/index';
             $event->rules['alt-monitor/images/export'] = 'alt-monitor/assets/export';
             $event->rules['alt-monitor/images/<assetId:\d+>/<siteId:\d+>'] = 'alt-monitor/assets/view';
+            $event->rules['alt-monitor/pages'] = 'alt-monitor/pages/index';
             $event->rules['alt-monitor/suggestions'] = 'alt-monitor/suggestions/index';
             $event->rules['alt-monitor/settings'] = 'alt-monitor/settings/index';
             $event->rules['alt-monitor/image-model'] = 'alt-monitor/model/index';
@@ -178,6 +188,7 @@ class AltMonitor extends Plugin
         });
         $this->registerAssetScreens();
         $this->registerEntryScreens();
+        $this->registerTemplateHelpers();
 
         // Trashed assets are forgotten; hard deletion is handled by foreign keys.
         Event::on(Elements::class, Elements::EVENT_AFTER_DELETE_ELEMENT, function(ElementEvent $event): void {
@@ -265,6 +276,30 @@ class AltMonitor extends Plugin
         });
     }
 
+    /**
+     * What AltMonitor offers front-end templates: the `altText(asset)` function, and in dev mode a
+     * console warning on site pages that print `<img>` tags without an alt attribute.
+     */
+    private function registerTemplateHelpers(): void
+    {
+        Craft::$app->getView()->registerTwigExtension(new Extension());
+
+        // Decorative flags are remembered for one page, never across pages a long-running process renders.
+        Event::on(View::class, View::EVENT_BEFORE_RENDER_PAGE_TEMPLATE, function(): void {
+            $this->getTemplateCheck()->reset();
+        });
+
+        Event::on(View::class, View::EVENT_AFTER_RENDER_PAGE_TEMPLATE, function(TemplateEvent $event): void {
+            try {
+                if ($this->getTemplateCheck()->appliesTo($event->templateMode, $event->template)) {
+                    $event->output = TemplateCheck::withWarnings($event->output);
+                }
+            } catch (\Throwable $exception) {
+                Craft::error('AltMonitor failed checking a page for images without alt text: ' . $exception->getMessage(), __METHOD__);
+            }
+        });
+    }
+
     public function getCpNavItem(): ?array
     {
         $item = parent::getCpNavItem();
@@ -277,6 +312,7 @@ class AltMonitor extends Plugin
         $item['subnav'] = [
             'dashboard' => ['label' => Craft::t('alt-monitor', 'Dashboard'), 'url' => 'alt-monitor'],
             'images' => ['label' => Craft::t('alt-monitor', 'Images'), 'url' => 'alt-monitor/images'],
+            'pages' => ['label' => Craft::t('alt-monitor', 'Pages'), 'url' => 'alt-monitor/pages'],
             'suggestions' => ['label' => Craft::t('alt-monitor', 'Suggestions'), 'url' => 'alt-monitor/suggestions'],
         ];
 
@@ -356,6 +392,12 @@ class AltMonitor extends Plugin
         return $this->get('imageExport');
     }
 
+    public function getPages(): Pages
+    {
+        /** @var Pages */
+        return $this->get('pages');
+    }
+
     public function getContentUsage(): ContentUsageScanner
     {
         /** @var ContentUsageScanner */
@@ -378,6 +420,12 @@ class AltMonitor extends Plugin
     {
         /** @var Suggestions */
         return $this->get('suggestions');
+    }
+
+    public function getTemplateCheck(): TemplateCheck
+    {
+        /** @var TemplateCheck */
+        return $this->get('templateCheck');
     }
 
     /**

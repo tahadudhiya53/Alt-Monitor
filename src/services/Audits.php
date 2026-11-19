@@ -12,6 +12,7 @@ use craft\helpers\Db;
 use DateTime;
 use Tahadudhiya\AltMonitor\AltMonitor;
 use Tahadudhiya\AltMonitor\enums\AltStatus;
+use Tahadudhiya\AltMonitor\enums\ListCheck;
 use Tahadudhiya\AltMonitor\enums\SuggestionStatus;
 use Tahadudhiya\AltMonitor\enums\UsageStatus;
 use Tahadudhiya\AltMonitor\models\AltAnalysis;
@@ -47,6 +48,7 @@ class Audits extends Component
             'altStatus' => $analysis->status->value,
             'issues' => $analysis->issuesString(),
             'altHash' => $hash,
+            'altKey' => self::altKeyFor($asset->alt),
             'dateScanned' => Db::prepareDateForDb(new DateTime()),
         ], [
             'volumeId' => $asset->volumeId,
@@ -54,6 +56,7 @@ class Audits extends Component
             'altStatus' => $analysis->status->value,
             'issues' => $analysis->issuesString(),
             'altHash' => $hash,
+            'altKey' => self::altKeyFor($asset->alt),
             'dateScanned' => Db::prepareDateForDb(new DateTime()),
         ]);
     }
@@ -319,7 +322,7 @@ class Audits extends Component
         $total = (int)$query->count('[[audits.id]]');
         $rows = $query
             ->select(['audits.*'])
-            ->orderBy(['assets.filename' => SORT_ASC, 'audits.id' => SORT_ASC])
+            ->orderBy(self::listOrder($criteria))
             ->offset($criteria->offset())
             ->limit(ListCriteria::PER_PAGE)
             ->all();
@@ -338,7 +341,7 @@ class Audits extends Component
     {
         $query = $this->listQuery($criteria, $volumeIds, $user)
             ->select(['audits.*'])
-            ->orderBy(['assets.filename' => SORT_ASC, 'audits.id' => SORT_ASC])
+            ->orderBy(self::listOrder($criteria))
             ->limit($batchSize);
 
         for ($offset = 0; ; $offset += $batchSize) {
@@ -355,8 +358,33 @@ class Audits extends Component
     }
 
     /**
+     * The list's order: by file name, or for images sharing alt text, by that text so each group
+     * is together.
+     *
+     * @return array<int|string, mixed>
+     */
+    private static function listOrder(ListCriteria $criteria): array
+    {
+        $order = ['assets.filename' => SORT_ASC, 'audits.id' => SORT_ASC];
+
+        return $criteria->check === ListCheck::SAME_ALT ? ['audits.altKey' => SORT_ASC, ...$order] : $order;
+    }
+
+    /**
+     * What images with the same alt text share: a hash of the text with spaces collapsed and
+     * trimmed, in lower case (in PHP, so every database groups alike). Null without alt text.
+     */
+    public static function altKeyFor(?string $alt): ?string
+    {
+        $text = mb_strtolower(trim((string)preg_replace('/[\s\x{00A0}]+/u', ' ', (string)$alt)));
+
+        return $text === '' ? null : sha1($text);
+    }
+
+    /**
      * The list's rows with its filters and the user's visibility applied, unordered and unpaged.
-     * Aliases: `audits`, `assets`, `elements_sites`, `suggestions`.
+     * Aliases: `audits`, `assets`, `elements_sites`, `alts` (the asset's alt text in the
+     * audit's site), `suggestions`.
      *
      * @param list<int> $volumeIds
      */
@@ -366,14 +394,20 @@ class Audits extends Component
             ->from(['audits' => AuditRecord::TABLE])
             ->innerJoin(['assets' => Table::ASSETS], '[[assets.id]] = [[audits.assetId]]')
             ->innerJoin(['elements_sites' => Table::ELEMENTS_SITES], '[[elements_sites.elementId]] = [[audits.assetId]] AND [[elements_sites.siteId]] = [[audits.siteId]]')
+            ->leftJoin(['alts' => Table::ASSETS_SITES], '[[alts.assetId]] = [[audits.assetId]] AND [[alts.siteId]] = [[audits.siteId]]')
             ->leftJoin(['suggestions' => SuggestionRecord::TABLE], '[[suggestions.assetId]] = [[audits.assetId]] AND [[suggestions.siteId]] = [[audits.siteId]]')
             ->where(['audits.volumeId' => $criteria->volumeId !== null ? array_intersect($volumeIds, [$criteria->volumeId]) : $volumeIds]);
 
         $query->andFilterWhere([
             'audits.altStatus' => $criteria->status?->value,
             'audits.usageStatus' => $criteria->usage?->value,
-            'audits.siteId' => $criteria->siteId,
         ]);
+
+        if ($criteria->usedIn !== null) {
+            $this->whereUsedIn($query, $criteria->usedIn, $criteria->siteId);
+        } else {
+            $query->andFilterWhere(['audits.siteId' => $criteria->siteId]);
+        }
 
         if ($criteria->suggestion === ListCriteria::SUGGESTION_NONE) {
             $query->andWhere(['suggestions.id' => null]);
@@ -382,12 +416,157 @@ class Audits extends Component
         }
 
         if ($criteria->search !== '') {
-            $query->andWhere(['or', ['like', 'assets.filename', $criteria->search], ['like', 'elements_sites.title', $criteria->search]]);
+            // Not case-sensitive on any database (PostgreSQL's LIKE is).
+            $like = Craft::$app->getDb()->getIsPgsql() ? 'ilike' : 'like';
+            $query->andWhere(['or', [$like, 'assets.filename', $criteria->search], [$like, 'elements_sites.title', $criteria->search], [$like, 'alts.alt', $criteria->search]]);
+        }
+
+        if ($criteria->check === ListCheck::SAME_ALT) {
+            // Compared only with images the user may see, so the groups match what is listed.
+            $query
+                ->innerJoin(['sameAlt' => $this->sameAltGroups($volumeIds, $user)], '[[sameAlt.siteId]] = [[audits.siteId]] AND [[sameAlt.altKey]] = [[audits.altKey]]')
+                ->andWhere(['audits.decorative' => false]);
+        } elseif ($criteria->check === ListCheck::NO_ALT_IN_TEXT) {
+            $query
+                ->andWhere(['audits.decorative' => false])
+                ->andWhere(['exists', (new Query())
+                    ->from(['usages' => UsageRecord::TABLE])
+                    ->where('[[usages.assetId]] = [[audits.assetId]]')
+                    ->andWhere(['usages.altInContent' => false])
+                    ->andWhere($this->usageInAuditSite()),
+                ]);
         }
 
         $query->andWhere($this->visibleCondition($user));
 
         return $query;
+    }
+
+    /**
+     * Narrows the list to images used in a piece of content or anything nested in it. With a site,
+     * images as that site's content shows them (alt text shared by all sites is audited in the
+     * primary site), rather than audits of that site alone.
+     */
+    private function whereUsedIn(Query $query, int $elementId, ?int $siteId): void
+    {
+        $pages = AltMonitor::getInstance()->getPages();
+        $usages = (new Query())
+            ->from(['usages' => UsageRecord::TABLE])
+            ->where('[[usages.assetId]] = [[audits.assetId]]')
+            ->andWhere(['usages.sourceElementId' => $pages->contentIds($elementId)]);
+
+        if ($siteId !== null) {
+            $usages->andWhere(['or', ['usages.sourceSiteId' => null], ['usages.sourceSiteId' => $siteId]]);
+            $query->andWhere($pages->auditInSite($siteId));
+        } else {
+            $usages->andWhere(['or', ['usages.sourceSiteId' => null], $this->usageInAuditSite()]);
+        }
+
+        $query->andWhere(['exists', $usages]);
+    }
+
+    /**
+     * Usage in the audit's site, or in any site for alt text all sites share (audited in the
+     * primary site only). Expects `usages` and `audits` aliases.
+     *
+     * @return array<int|string, mixed>
+     */
+    private function usageInAuditSite(): array
+    {
+        return ['or', '[[usages.sourceSiteId]] = [[audits.siteId]]', ['audits.volumeId' => AltMonitor::getInstance()->getAssetScanner()->sharedAltVolumeIds()]];
+    }
+
+    /**
+     * Alt text more than one image has, by site, among the images a user may see: decorative
+     * images and empty alt text aside. Columns: `siteId`, `altKey`.
+     *
+     * @param list<int> $volumeIds
+     */
+    private function sameAltGroups(array $volumeIds, ?User $user): Query
+    {
+        return (new Query())
+            ->select(['siteId' => 'audits.siteId', 'altKey' => 'audits.altKey'])
+            ->from(['audits' => AuditRecord::TABLE])
+            ->innerJoin(['assets' => Table::ASSETS], '[[assets.id]] = [[audits.assetId]]')
+            ->where(['audits.volumeId' => $volumeIds, 'audits.decorative' => false])
+            ->andWhere(['not', ['audits.altKey' => null]])
+            ->andWhere($this->visibleCondition($user))
+            ->groupBy(['audits.siteId', 'audits.altKey'])
+            // One audit per image and site, so rows are images.
+            ->having('COUNT(*) > 1');
+    }
+
+    /**
+     * For each listed image, how many other images the user may see have the same alt text in
+     * the same site. Decorative images and empty alt text aside.
+     *
+     * @param array<int, array<string, mixed>> $rows Audit rows.
+     * @return array<string, int> By `assetId-siteId`.
+     */
+    private function sameAltCounts(array $rows, ?User $user): array
+    {
+        $pairs = array_values(array_filter($rows, static fn(array $row): bool => !$row['decorative'] && ($row['altKey'] ?? null) !== null));
+
+        if ($pairs === []) {
+            return [];
+        }
+
+        // Matched on the indexed (siteId, altKey) of the other images.
+        $counts = (new Query())
+            ->select(['mine.assetId', 'mine.siteId', 'count' => 'COUNT(*)'])
+            ->from(['mine' => AuditRecord::TABLE])
+            ->innerJoin(['audits' => AuditRecord::TABLE], '[[audits.siteId]] = [[mine.siteId]] AND [[audits.altKey]] = [[mine.altKey]] AND [[audits.assetId]] <> [[mine.assetId]]')
+            ->innerJoin(['assets' => Table::ASSETS], '[[assets.id]] = [[audits.assetId]]')
+            ->where(['or', ...array_map(static fn(array $row): array => ['mine.assetId' => (int)$row['assetId'], 'mine.siteId' => (int)$row['siteId']], $pairs)])
+            ->andWhere(['audits.volumeId' => $this->viewableVolumeIds($user), 'audits.decorative' => false])
+            ->andWhere($this->visibleCondition($user))
+            ->groupBy(['mine.assetId', 'mine.siteId'])
+            ->all();
+        $byKey = [];
+
+        foreach ($counts as $row) {
+            $byKey[$row['assetId'] . '-' . $row['siteId']] = (int)$row['count'];
+        }
+
+        return $byKey;
+    }
+
+    /**
+     * For each listed image, in how many pieces of content its `<img>` has no alt text, as last
+     * scanned. Decorative images aside: for them, no alt text is right.
+     *
+     * @param array<int, array<string, mixed>> $rows Audit rows.
+     * @return array<string, int> By `assetId-siteId`.
+     */
+    private function noAltInTextCounts(array $rows): array
+    {
+        $rows = array_values(array_filter($rows, static fn(array $row): bool => !$row['decorative']));
+
+        if ($rows === []) {
+            return [];
+        }
+
+        $usages = (new Query())
+            ->select(['assetId', 'sourceSiteId', 'sourceElementId'])
+            ->from(UsageRecord::TABLE)
+            ->where(['assetId' => array_values(array_unique(array_map('intval', array_column($rows, 'assetId')))), 'altInContent' => false])
+            ->all();
+        $shared = array_flip(AltMonitor::getInstance()->getAssetScanner()->sharedAltVolumeIds());
+        $counts = [];
+
+        foreach ($rows as $row) {
+            $places = [];
+
+            foreach ($usages as $usage) {
+                if ((int)$usage['assetId'] === (int)$row['assetId'] && ((int)$usage['sourceSiteId'] === (int)$row['siteId'] || isset($shared[(int)$row['volumeId']]))) {
+                    $places[(int)$usage['sourceElementId']] = true;
+                }
+            }
+
+            $counts[$row['assetId'] . '-' . $row['siteId']] = count($places);
+        }
+
+        return $counts;
     }
 
     /**
@@ -491,6 +670,8 @@ class Audits extends Component
         $pairs = array_map(static fn(array $row): array => [(int)$row['assetId'], (int)$row['siteId']], $rows);
         $suggestions = $plugin->getSuggestions()->forPairs($pairs);
         $usageCounts = $plugin->getContentUsage()->counts(array_map('intval', array_column($rows, 'assetId')));
+        $sameAlt = $this->sameAltCounts($rows, $user);
+        $noAltInText = $this->noAltInTextCounts($rows);
         $scanner = $plugin->getAssetScanner();
         $items = [];
 
@@ -514,6 +695,8 @@ class Audits extends Component
                 dateScanned: DateTimeHelper::toDateTime($row['dateScanned']) ?: new DateTime(),
                 dateAltSaved: $row['dateAltSaved'] ? (DateTimeHelper::toDateTime($row['dateAltSaved']) ?: null) : null,
                 canEdit: $user !== null && $scanner->userMay($asset, $user, true),
+                sameAltCount: $sameAlt[$row['assetId'] . '-' . $row['siteId']] ?? 0,
+                noAltInTextCount: $noAltInText[$row['assetId'] . '-' . $row['siteId']] ?? 0,
             );
         }
 

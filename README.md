@@ -17,8 +17,14 @@ that runs in your browser. Nothing is saved until a person approves it.
   rich text.
 - **Catches problems while people edit.** A box in the entry editor lists the entry's images with
   missing or weak alt text, and a setting can stop entries being published until they have it.
+- **Fix by page.** Pages lists your entries by how many of their images need work: “Home – 6
+  missing, About – 4”.
+- **Finds what others miss:** images in rich text with no alt text there, and the same alt text
+  on different images.
 - **Works in Craft's own screens.** A box in the asset editor, a column and a filter in the
   Assets index, and a dashboard widget.
+- **Helps your templates print it.** `{{ altText(asset) }}` prints the alt text, and in dev mode
+  the browser console names images a page prints without `alt`.
 
 ## Requirements
 
@@ -52,8 +58,9 @@ Prefer to write alt text yourself? Use **Images**: type it in the list and click
 | Screen | What you do there |
 |---|---|
 | **Dashboard** | See how many images need alt text, start scans, start describing. |
-| **Images** | Every checked image with its status. Filter by status, volume, site, usage or suggestion; search by file name or title. Type alt text in the list, or select images to describe, approve or mark as decorative. **Export CSV** downloads every image the filters show, to share with a content team. |
-| **Image page** (click an image) | The image, its alt text and status, the suggestion (**Use this** / **Reject**), **Describe the image**, **Mark as decorative**, and where the image is used. |
+| **Images** | Every checked image with its status. Filter by status, volume, site, usage, suggestion or **More checks**; search by file name, title or alt text. Type alt text in the list, or select images to describe, approve or mark as decorative. **Export CSV** downloads every image the filters show, to share with a content team. |
+| **Image page** (click an image) | The image, its alt text and status, the suggestion (**Use this** / **Reject**), **Describe the image**, **Mark as decorative**, and where the image is used, with the alt text rich text gives it there. |
+| **Pages** | Entries and other content (global sets, categories…), the ones with the most images to fix first, with how many are missing, weak, to review or embedded without alt text. **Fix images** opens the Images list with just that page's images. One site at a time. |
 | **Suggestions** | Everything waiting for review. Edit, **Approve** or **Reject**; **Approve selected** or **Approve all on this page**. Keyboard: Ctrl/⌘ + Enter approves, Esc rejects. |
 | **Image model** | Download or remove the image model and the translation models in this browser. |
 | **Settings** | Two tabs: **Scanning & rules** (scan options, how images are checked, extra generic words) and **Languages**. |
@@ -139,6 +146,52 @@ afterwards (Settings → Scanning).
 It can't see templates, custom code or other systems, so “Not found in content” doesn't prove an
 image is unused.
 
+**Pages** is built from the last usage scan: images in Matrix and other nested content count
+toward the entry that holds them. Run a usage scan (or a full scan) after big content changes.
+
+## More checks
+
+Two checks look beyond one image's own alt text. Pick them under **More checks** on the Images
+list; each image they apply to also says so under its status.
+
+- **No alt text where embedded in text.** Rich text keeps the alt text an image was inserted
+  with, so the page can show an image with no alt text even when the asset has some, or with
+  older words. The usage scan notes each `<img>` without alt text (decorative images are fine
+  without). The image page's **Where it is used** shows, for each piece of content, what its text
+  says now: **None in the text**, **Different here: “…”** or **Same as the image**. Fix it in the
+  entry. The list updates at the next usage scan; the image page right away.
+- **Same alt text as other images.** For example 40 different photos all called “Team photo”.
+  Compared per site, ignoring case and spaces at the ends, only with images you may see;
+  decorative images and empty alt text are left out. The list is sorted by alt text, so each
+  group is together, and **Same alt text as N other images** lists that group.
+
+After updating AltMonitor, run a usage scan once so the rich text check has something to show.
+
+## In your templates
+
+Alt text in Craft only helps if the template prints it. Use `altText()` on the `<img>` tag:
+
+```twig
+{% set image = entry.image.one() %}
+<img src="{{ image.url }}" {{ altText(image) }}>
+```
+
+It prints `alt="…"` with the image's alt text (escaped, on one line), or `alt=""` when the image
+is marked decorative in AltMonitor, so screen readers skip it. An image with no alt text, or no
+image at all, also gets `alt=""` rather than none, so screen readers don't read the file name.
+
+**Template check (dev mode only).** With Craft's `devMode` on, every front-end page is read after
+it is rendered, and the browser console warns about:
+
+- `<img>` tags with no `alt` attribute, listed one per line, and
+- images printed with `altText()` that have no alt text in Craft yet.
+
+Comments, scripts and styles are skipped, and only whole HTML pages are checked (not JSON, XML or
+page fragments loaded by Ajax). When nothing is wrong, the page is not changed. Outside dev mode
+the check never runs and `altText()` prints only the `alt` attribute. The warnings are an
+inline `<script>`, so a content security policy without `'unsafe-inline'` will block them. To
+turn the check off, set `'templateCheck' => false` in `config/alt-monitor.php`.
+
 ## Settings
 
 **AltMonitor → Settings** has two tabs. Settings are saved to project config, so they can only
@@ -186,12 +239,13 @@ Everything can also be set in `config/alt-monitor.php`, which overrides the cont
 | `suggestAfterScan` | `false` | Config file only. With Ollama, get suggestions after each scan |
 | `fallbackToRules` | `false` | Config file only. With Ollama, suggest from caption, title or file name when it fails |
 | `contextFieldHandles` | `['caption', 'description']` | Config file only. Fields that fallback may use |
+| `templateCheck` | `true` | Config file only. In dev mode, warn in the browser console about images without `alt` |
 
 ## Permissions
 
 | Permission | Allows |
 |---|---|
-| View AltMonitor | The dashboard, images and suggestions, in volumes the user can see |
+| View AltMonitor | The dashboard, images, pages and suggestions, in volumes the user can see |
 | ↳ Run scans | Starting scans |
 | ↳ Get suggestions | Describing and translating images |
 | ↳ Edit alt text | Saving alt text and marking images as decorative (the user must also be allowed to save the asset) |
@@ -270,6 +324,11 @@ metadata services. Check the licence of the model you choose.
 
 - Describing needs a person on the page (unless you use Ollama).
 - Usage scans can't see templates or custom code.
+- The rich text check reads `<img>` tags whose `src` is a Craft reference tag
+  (`{asset:123:url}`), as Craft's rich text fields store images. Images added by URL aren't
+  assets, so they aren't checked.
+- The template check reads the HTML a template rendered; images added later by JavaScript
+  aren't checked.
 - The image model doesn't know names of people, brands or places.
 - Statuses are automatic checks, not a WCAG audit.
 
