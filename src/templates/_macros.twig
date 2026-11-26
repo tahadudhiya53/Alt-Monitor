@@ -66,7 +66,7 @@
             <p class="error with-icon">{{ 'These could not be updated:'|t('alt-monitor') }}</p>
             <ul class="bullets">
                 {% for failure in failures %}
-                    <li><code>{{ failure.key }}</code> — {{ failure.reason }}</li>
+                    <li><strong>{{ failure.name ?? failure.key }}</strong>: {{ failure.reason }}</li>
                 {% endfor %}
             </ul>
         </div>

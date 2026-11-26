@@ -18,8 +18,6 @@ use yii\web\Response;
  */
 class ModelController extends Controller
 {
-    use RequestInput;
-
     public function beforeAction($action): bool
     {
         if (!parent::beforeAction($action)) {
