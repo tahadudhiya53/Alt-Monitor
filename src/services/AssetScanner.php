@@ -172,10 +172,16 @@ class AssetScanner extends Component
         $unchanged = [];
 
         foreach ($assets as $asset) {
-            $decorative = $stored[(int)$asset->id]['decorative'] ?? false;
+            $row = $stored[(int)$asset->id] ?? null;
+            $decorative = $row['decorative'] ?? false;
 
             // Nothing the analysis reads has changed, so only the time it was seen is recorded.
-            if (($stored[(int)$asset->id]['altHash'] ?? null) === self::hash($asset, $decorative)) {
+            // Rows saved before alt text was keyed get their key now.
+            if (
+                $row !== null
+                && $row['altHash'] === self::hash($asset, $decorative)
+                && ($row['altKey'] !== null || Audits::altKeyFor($asset->alt) === null)
+            ) {
                 $unchanged[] = (int)$asset->id;
                 continue;
             }

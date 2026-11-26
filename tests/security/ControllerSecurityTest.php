@@ -607,6 +607,9 @@ class ControllerSecurityTest extends TestCase
         // Nor handed to the browser to describe, nor counted for it.
         self::assertSame([], array_filter($audits->needingSuggestions(0, 1000, $audits->viewableVolumeIds($user), $user), static fn(array $row): bool => in_array($row['assetId'], $ids, true)));
         self::assertSame(0, count(array_intersect($ids, array_column($audits->needingSuggestions(0, 1000, $audits->viewableVolumeIds($user), $user), 'assetId'))));
+        // The counts on the dashboard and the list's pills match the rows the list shows.
+        $all = \Tahadudhiya\AltMonitor\models\ListCriteria::fromParams([]);
+        self::assertSame($audits->page($all, $audits->viewableVolumeIds($user), $user)->total, $audits->stats($audits->viewableVolumeIds($user), $user)->audited);
 
         $user = $this->signIn(false, [...self::VIEW, ...$sites, 'viewAssets:' . self::$shared->uid, 'viewPeerAssets:' . self::$shared->uid]);
         self::assertSame(2, $audits->page($criteria, $audits->viewableVolumeIds($user), $user)->total);

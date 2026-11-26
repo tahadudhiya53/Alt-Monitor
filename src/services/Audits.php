@@ -65,7 +65,7 @@ class Audits extends Component
      * What is stored for images in one site, by asset ID.
      *
      * @param list<int> $assetIds
-     * @return array<int, array{decorative: bool, altHash: string}>
+     * @return array<int, array{decorative: bool, altHash: string, altKey: string|null}>
      */
     public function stored(int $siteId, array $assetIds): array
     {
@@ -74,14 +74,14 @@ class Audits extends Component
         }
 
         $rows = (new Query())
-            ->select(['assetId', 'decorative', 'altHash'])
+            ->select(['assetId', 'decorative', 'altHash', 'altKey'])
             ->from(AuditRecord::TABLE)
             ->where(['siteId' => $siteId, 'assetId' => $assetIds])
             ->all();
         $stored = [];
 
         foreach ($rows as $row) {
-            $stored[(int)$row['assetId']] = ['decorative' => (bool)$row['decorative'], 'altHash' => (string)$row['altHash']];
+            $stored[(int)$row['assetId']] = ['decorative' => (bool)$row['decorative'], 'altHash' => (string)$row['altHash'], 'altKey' => $row['altKey']];
         }
 
         return $stored;
@@ -140,7 +140,7 @@ class Audits extends Component
             ->andWhere(['or', ['not', ['elements.dateDeleted' => null]], ['assets.id' => null], ['not', ['assets.kind' => Asset::KIND_IMAGE]]])
             ->column();
 
-        return $gone === [] ? 0 : Db::delete(AuditRecord::TABLE, ['assetId' => $gone]);
+        return self::deleteIn(AuditRecord::TABLE, 'assetId', $gone);
     }
 
     /**
@@ -283,16 +283,21 @@ class Audits extends Component
      */
     public function stats(array $volumeIds, ?User $user = null): DashboardStats
     {
-        $counts = static fn(string $column): array => array_map('intval', (new Query())
+        // Only images the user may see, so the counts match the lists they open.
+        $base = (new Query())->from(['audits' => AuditRecord::TABLE])->where(['audits.volumeId' => $volumeIds]);
+        $visible = $this->visibleCondition($user);
+
+        if ($visible !== []) {
+            $base->innerJoin(['assets' => Table::ASSETS], '[[assets.id]] = [[audits.assetId]]')->andWhere($visible);
+        }
+
+        $counts = static fn(string $column): array => array_map('intval', (clone $base)
             ->select(['COUNT(*)'])
-            ->from(AuditRecord::TABLE)
-            ->where(['volumeId' => $volumeIds])
-            ->groupBy([$column])
+            ->groupBy(["audits.$column"])
             ->indexBy($column)
             ->column());
         $status = $counts('altStatus');
         $usage = $counts('usageStatus');
-        $base = (new Query())->from(AuditRecord::TABLE)->where(['volumeId' => $volumeIds]);
 
         return new DashboardStats(
             totalImages: $volumeIds === [] ? 0 : (int)Asset::find()->kind(Asset::KIND_IMAGE)->volumeId($volumeIds)->status(null)->site('*')->unique()->count(),
@@ -301,9 +306,9 @@ class Audits extends Component
             weak: $status[AltStatus::WEAK->value] ?? 0,
             good: $status[AltStatus::GOOD->value] ?? 0,
             review: $status[AltStatus::REVIEW->value] ?? 0,
-            decorative: (int)(clone $base)->andWhere(['decorative' => true])->count(),
+            decorative: (int)(clone $base)->andWhere(['audits.decorative' => true])->count(),
             pendingSuggestions: AltMonitor::getInstance()->getSuggestions()->count(SuggestionStatus::PENDING, $volumeIds, $user),
-            updated: (int)(clone $base)->andWhere(['not', ['dateAltSaved' => null]])->count(),
+            updated: (int)(clone $base)->andWhere(['not', ['audits.dateAltSaved' => null]])->count(),
             used: $usage[UsageStatus::USED->value] ?? 0,
             unused: $usage[UsageStatus::UNUSED->value] ?? 0,
             usageUnknown: $usage[UsageStatus::UNKNOWN->value] ?? 0,
@@ -416,8 +421,7 @@ class Audits extends Component
         }
 
         if ($criteria->search !== '') {
-            // Not case-sensitive on any database (PostgreSQL's LIKE is).
-            $like = Craft::$app->getDb()->getIsPgsql() ? 'ilike' : 'like';
+            $like = self::likeOperator();
             $query->andWhere(['or', [$like, 'assets.filename', $criteria->search], [$like, 'elements_sites.title', $criteria->search], [$like, 'alts.alt', $criteria->search]]);
         }
 
@@ -701,5 +705,29 @@ class Audits extends Component
         }
 
         return $items;
+    }
+
+    /** A LIKE that ignores case on every database (PostgreSQL's LIKE doesn't). */
+    public static function likeOperator(): string
+    {
+        return Craft::$app->getDb()->getIsPgsql() ? 'ilike' : 'like';
+    }
+
+    /**
+     * Deletes rows whose column is one of the values, a thousand at a time (databases limit the
+     * values one statement may hold).
+     *
+     * @param array<int|string> $values
+     * @return int Rows deleted.
+     */
+    public static function deleteIn(string $table, string $column, array $values): int
+    {
+        $deleted = 0;
+
+        foreach (array_chunk($values, 1000) as $chunk) {
+            $deleted += Db::delete($table, [$column => $chunk]);
+        }
+
+        return $deleted;
     }
 }
