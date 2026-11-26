@@ -3,14 +3,15 @@
 namespace Tahadudhiya\AltMonitor\controllers;
 
 use Craft;
+use craft\db\Query;
 use craft\web\Controller;
-use InvalidArgumentException;
 use Tahadudhiya\AltMonitor\AltMonitor;
 use Tahadudhiya\AltMonitor\enums\SuggestionSource;
 use Tahadudhiya\AltMonitor\enums\SuggestionStatus;
 use Tahadudhiya\AltMonitor\errors\AiProviderException;
 use Tahadudhiya\AltMonitor\errors\AltTextException;
 use Tahadudhiya\AltMonitor\models\ListCriteria;
+use Tahadudhiya\AltMonitor\records\SuggestionRecord;
 use yii\web\BadRequestHttpException;
 use yii\web\NotFoundHttpException;
 use yii\web\Response;
@@ -51,11 +52,7 @@ class SuggestionsController extends Controller
      */
     public function actionIndex(): Response
     {
-        try {
-            $criteria = ListCriteria::fromParams($this->request->getQueryParams());
-        } catch (InvalidArgumentException $exception) {
-            throw new BadRequestHttpException($exception->getMessage(), 0, $exception);
-        }
+        $criteria = $this->criteria();
 
         $plugin = AltMonitor::getInstance();
         $user = Craft::$app->getUser();
@@ -130,7 +127,7 @@ class SuggestionsController extends Controller
         $ids = [];
 
         foreach ((array)$this->request->getBodyParam('ids', []) as $id) {
-            if (!is_string($id) || !preg_match('/^[1-9]\d{0,9}$/', $id)) {
+            if (!is_string($id) || !preg_match(self::POSITIVE_INT, $id)) {
                 throw new BadRequestHttpException('Malformed suggestion ID.');
             }
 
@@ -153,7 +150,12 @@ class SuggestionsController extends Controller
         $results = AltMonitor::getInstance()->getSuggestions()->approveMany($ids, $edited, $this->user());
         $failures = array_filter($results, static fn(?string $error): bool => $error !== null);
         $approved = count($results) - count($failures);
-        $labels = array_map(static fn(int $id, string $reason): array => ['key' => (string)$id, 'reason' => $reason], array_keys($failures), $failures);
+        $labels = $this->failureList($failures, $failures === [] ? [] : array_map('intval', (new Query())
+            ->select(['assetId', 'id'])
+            ->from(SuggestionRecord::TABLE)
+            ->where(['id' => array_keys($failures)])
+            ->indexBy('id')
+            ->column()));
 
         if ($failures === []) {
             return $this->asSuccess(Craft::t('alt-monitor', '{count, number} {count, plural, =1{suggestion} other{suggestions}} approved.', ['count' => $approved]));
@@ -300,7 +302,8 @@ class SuggestionsController extends Controller
         }
 
         try {
-            $asset = $plugin->getAltTextEditor()->editableImage($this->positiveInt('assetId'), $this->positiveInt('siteId'), $this->user());
+            // Like describing in the browser: a suggestion changes no alt text, so seeing the image is enough.
+            $asset = $plugin->getSuggestions()->viewableImage($this->positiveInt('assetId'), $this->positiveInt('siteId'), $this->user());
         } catch (AltTextException $exception) {
             return $this->asFailure($exception->getMessage());
         }
@@ -320,12 +323,13 @@ class SuggestionsController extends Controller
         $this->requirePostRequest();
         $this->requirePermission(AltMonitor::PERMISSION_GENERATE);
 
-        if (!AltMonitor::getInstance()->getSuggestions()->generatesOnServer()) {
+        $plugin = AltMonitor::getInstance();
+
+        if (!$plugin->getSuggestions()->generatesOnServer()) {
             return $this->asFailure(self::inBrowserMessage());
         }
 
-        $plugin = AltMonitor::getInstance();
-        $plugin->getSuggestions()->queueForAllWanting($plugin->getAudits()->viewableVolumeIds($this->user()));
+        $plugin->getSuggestions()->queueForAllWanting($plugin->getAudits()->viewableVolumeIds($this->user()), $this->user());
 
         return $this->asSuccess(Craft::t('alt-monitor', 'Making suggestions for images with missing or weak alt text.'));
     }

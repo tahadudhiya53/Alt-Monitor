@@ -11,8 +11,8 @@ use Tahadudhiya\AltMonitor\enums\SuggestionStatus;
 use yii\queue\RetryableJobInterface;
 
 /**
- * Generates suggestions: for the images it was given, or, walking the audit, for every image with
- * missing or weak alt text that has none yet, a few per job.
+ * Generates suggestions for the images it was given. A walk finds every image with missing or
+ * weak alt text that has none yet, a few per step, and queues a job for each few.
  *
  * Images are reserved (their suggestion set to “generating”) before a job is queued for them, so
  * the same image is never queued twice, and each is generated under its own lock.
@@ -34,18 +34,19 @@ class GenerateAltTextJob extends BaseJob implements RetryableJobInterface
     /** @var list<int>|null The volumes a walk covers: those of the user who started it. All when null. */
     public ?array $volumeIds = null;
 
+    /** The user who started a walk: only images they may see. Everyone's when null (after a scan). */
+    public ?int $userId = null;
+
     public function execute($queue): void
     {
-        $plugin = AltMonitor::getInstance();
-        $suggestions = $plugin->getSuggestions();
-        $targets = $this->targets;
-        $last = null;
-
         if ($this->walk) {
-            $rows = $plugin->getAudits()->needingSuggestions($this->afterAuditId, self::WALK_BATCH, $this->volumeIds);
-            $last = $rows === [] ? null : end($rows)['id'];
-            $targets = $suggestions->reserve(array_map(static fn(array $row): array => [$row['assetId'], $row['siteId']], $rows));
+            $this->walkStep();
+
+            return;
         }
+
+        $suggestions = AltMonitor::getInstance()->getSuggestions();
+        $targets = $this->targets;
 
         foreach ($targets as $i => $target) {
             [$assetId, $siteId] = $target;
@@ -66,15 +67,48 @@ class GenerateAltTextJob extends BaseJob implements RetryableJobInterface
         }
 
         $this->setProgress($queue, 1);
+    }
 
-        if ($last !== null) {
-            QueueHelper::push(new self(['walk' => true, 'afterAuditId' => $last, 'volumeIds' => $this->volumeIds]));
+    /**
+     * Reserves the next few images and queues a job for them, then the next step. Generating
+     * happens in that job, so a retried step never loses the images it reserved.
+     */
+    private function walkStep(): void
+    {
+        $plugin = AltMonitor::getInstance();
+        $user = $this->userId === null ? null : Craft::$app->getUsers()->getUserById($this->userId);
+
+        if ($this->userId !== null && $user === null) {
+            return;
         }
+
+        $rows = $plugin->getAudits()->needingSuggestions($this->afterAuditId, self::WALK_BATCH, $this->volumeIds, $user);
+
+        if ($rows === []) {
+            return;
+        }
+
+        $targets = $plugin->getSuggestions()->reserve(array_map(static fn(array $row): array => [$row['assetId'], $row['siteId']], $rows));
+
+        if ($targets !== []) {
+            QueueHelper::push(new self(['targets' => $targets]));
+        }
+
+        QueueHelper::push(new self([
+            'walk' => true,
+            'afterAuditId' => end($rows)['id'],
+            'volumeIds' => $this->volumeIds,
+            'userId' => $this->userId,
+        ]));
     }
 
     public function getTtr(): int
     {
-        $count = $this->walk ? self::WALK_BATCH : max(1, count($this->targets));
+        if ($this->walk) {
+            return (int)Craft::$app->getQueue()->ttr;
+        }
+
+        $count = max(1, count($this->targets));
 
         return max((int)Craft::$app->getQueue()->ttr, $count * (AltMonitor::getInstance()->getSettings()->aiTimeout + 30) + 60);
     }

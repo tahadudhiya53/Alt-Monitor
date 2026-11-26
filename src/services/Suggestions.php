@@ -72,8 +72,6 @@ class Suggestions extends Component
             throw new AltTextException($exception->getMessage(), 0, $exception);
         }
 
-        $text = AltTextEditor::sanitize($text);
-
         if ($plugin->getAnalyzer()->isWeak($text, (string)$asset->getFilename())) {
             throw new AltTextException(Craft::t('alt-monitor', 'The description couldn’t be used as alt text.'));
         }
@@ -152,6 +150,27 @@ class Suggestions extends Component
      */
     public function reserve(array $pairs): array
     {
+        // Two people starting at once must not both reserve, and queue, the same images.
+        $mutex = Craft::$app->getMutex();
+        $lock = 'altmonitor:reserve';
+
+        if (!$mutex->acquire($lock, 15)) {
+            return [];
+        }
+
+        try {
+            return $this->reserveLocked($pairs);
+        } finally {
+            $mutex->release($lock);
+        }
+    }
+
+    /**
+     * @param list<array{0: int, 1: int}> $pairs
+     * @return list<array{0: int, 1: int, 2?: string}>
+     */
+    private function reserveLocked(array $pairs): array
+    {
         $current = $this->forPairs($pairs);
         $cutoff = Db::prepareDateForDb(new DateTime('@' . (time() - self::RESERVATION_TIMEOUT)));
         $queuedRecently = $pairs === [] ? [] : (new Query())
@@ -178,9 +197,10 @@ class Suggestions extends Component
                 'source' => $existing?->source->value ?? SuggestionSource::RULES->value,
                 'status' => SuggestionStatus::QUEUED->value,
             ], ['status' => SuggestionStatus::QUEUED->value, 'error' => null]);
-            // Text from a run that failed or died keeps its failed status, but is never lost.
+            // Text is never lost. Text left “generating” by a job that died is put back for
+            // review, so it can still be approved.
             $reserved[$key] = $existing?->suggestedAlt !== null
-                ? [$assetId, $siteId, (in_array($existing->status, [SuggestionStatus::QUEUED, SuggestionStatus::FAILED], true) ? SuggestionStatus::FAILED : $existing->status)->value]
+                ? [$assetId, $siteId, ($existing->status === SuggestionStatus::QUEUED ? SuggestionStatus::PENDING : $existing->status)->value]
                 : [$assetId, $siteId];
         }
 
@@ -209,10 +229,11 @@ class Suggestions extends Component
      * none, optionally only in some volumes.
      *
      * @param list<int>|null $volumeIds
+     * @param User|null $user Only images this user may see (when a person starts it).
      */
-    public function queueForAllWanting(?array $volumeIds = null): void
+    public function queueForAllWanting(?array $volumeIds = null, ?User $user = null): void
     {
-        Queue::push(new GenerateAltTextJob(['walk' => true, 'volumeIds' => $volumeIds]));
+        Queue::push(new GenerateAltTextJob(['walk' => true, 'volumeIds' => $volumeIds, 'userId' => $user?->id]));
     }
 
     /**
@@ -415,7 +436,7 @@ class Suggestions extends Component
             ->where(['audits.id' => null])
             ->column();
 
-        return $ids === [] ? 0 : Db::delete(SuggestionRecord::TABLE, ['id' => $ids]);
+        return Audits::deleteIn(SuggestionRecord::TABLE, 'id', $ids);
     }
 
     public function get(int $assetId, int $siteId): ?Suggestion
@@ -489,7 +510,7 @@ class Suggestions extends Component
             ]);
 
         if ($criteria->search !== '') {
-            $query->andWhere(['like', 'suggestions.suggestedAlt', $criteria->search]);
+            $query->andWhere([Audits::likeOperator(), 'suggestions.suggestedAlt', $criteria->search]);
         }
 
         $query
