@@ -28,8 +28,13 @@ class AltTextEditor extends Component
      */
     public static function sanitize(string $text): string
     {
-        $text = html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5);
-        $text = trim((string)preg_replace(['/[\p{Cc}\p{Cf}]+/u', '/\s+/u'], ' ', $text));
+        // Tags are removed before and after decoding (“&lt;b&gt;” is a tag too), but a lone “<”
+        // stays: “I <3 cats” is text.
+        $tags = '/<!--.*?-->|<\/?[a-z][^>]*>/is';
+        $text = (string)preg_replace($tags, ' ', html_entity_decode((string)preg_replace($tags, ' ', $text), ENT_QUOTES | ENT_HTML5));
+        // Format characters go, except the joiners that Persian, Hindi and emoji need.
+        $text = (string)preg_replace('/(?![\x{200C}\x{200D}])\p{Cf}/u', '', $text);
+        $text = trim((string)preg_replace(['/\p{Cc}+/u', '/\s+/u'], ' ', $text));
 
         if (mb_strlen($text) > self::MAX_LENGTH) {
             throw new AltTextException(Craft::t('alt-monitor', 'Alt text can be at most {max, number} characters long.', ['max' => self::MAX_LENGTH]));
