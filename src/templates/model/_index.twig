@@ -13,6 +13,8 @@
     'Downloading the image model (once): {loaded} of {total} MB',
     'Loading the image model…',
     'The image model could not be loaded: {message}',
+    'The image model stopped working. Reload the page to try again.',
+    'Something went wrong. Check the internet connection, then try again.',
     'This browser can’t run the image model. Use a current version of Chrome, Edge, Firefox or Safari.',
     'Downloaded on {date}.',
     'Uses about {size} MB of this browser’s storage.',
@@ -80,7 +82,8 @@
                 <div class="altmonitor-progress altmonitor-progress--large" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="{{ 'Download progress'|t('alt-monitor') }}">
                     <div data-bar style="width: 0"></div>
                 </div>
-                <p data-status role="status"></p>
+                {# Updated many times a second: the progress bar carries the value, so this isn't announced. #}
+                <p data-status aria-live="off"></p>
                 <p class="light">{{ 'Keep this tab open. If you leave, the download stops. Finished files are kept for next time.'|t('alt-monitor') }}</p>
                 <button type="button" class="btn" data-stop>{{ 'Cancel'|t('alt-monitor') }}</button>
             </div>
@@ -167,7 +170,7 @@
                                             <div class="altmonitor-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="{{ 'Download progress'|t('alt-monitor') }}">
                                                 <div data-bar style="width: 0"></div>
                                             </div>
-                                            <span class="smalltext" data-status role="status"></span>
+                                            <span class="smalltext" data-status aria-live="off"></span>
                                             <button type="button" class="btn small" data-stop>{{ 'Cancel'|t('alt-monitor') }}</button>
                                         </div>
                                         <span class="warning" data-translation-state="not-kept" hidden>{{ 'Works, but this browser didn’t keep it.'|t('alt-monitor') }}</span>
@@ -181,8 +184,8 @@
                         <input type="checkbox" class="checkbox" id="altmonitor-agree-translation" data-translation-agree>
                         <label for="altmonitor-agree-translation">
                             {{ externalHosts|length
-                                ? 'I agree to download the translation models I choose (about 110–135 MB each, plus the 27 MB AI engine if needed) from {hosts}, which will see my IP address.'|t('alt-monitor', {hosts: externalHosts|join(', ')})
-                                : 'I agree to download the translation models I choose (about 110–135 MB each, plus the 27 MB AI engine if needed).'|t('alt-monitor') }}
+                                ? 'I agree to download the translation models I choose (about 105–140 MB each, plus the 27 MB AI engine if needed) from {hosts}, which will see my IP address.'|t('alt-monitor', {hosts: externalHosts|join(', ')})
+                                : 'I agree to download the translation models I choose (about 105–140 MB each, plus the 27 MB AI engine if needed).'|t('alt-monitor') }}
                         </label>
                     </div>
                     {% if returnUrl %}
@@ -195,7 +198,8 @@
             </section>
         {% endif %}
 
-        {# ---------- What the download involves ---------- #}
+        {# ---------- What the download involves (not with Ollama: no image model here) ---------- #}
+        {% if not serverAi %}
         <h2 class="altmonitor-details-heading">{{ 'Details'|t('alt-monitor') }}</h2>
         <section class="altmonitor-info" aria-labelledby="altmonitor-what">
             <h2 id="altmonitor-what">{{ 'What it is'|t('alt-monitor') }}</h2>
@@ -281,12 +285,14 @@
             <p class="warning with-icon" data-metered hidden>{{ 'You seem to be on mobile data or data saver. Maybe download later on Wi-Fi.'|t('alt-monitor') }}</p>
             <p class="warning with-icon" data-low-storage hidden>{{ 'Your browser may not have enough space for the model. Free up some disk space first.'|t('alt-monitor') }}</p>
         </section>
+        {% endif %}
 
     </div>
     <noscript><p class="warning with-icon">{{ 'The image model runs in your browser and needs JavaScript.'|t('alt-monitor') }}</p></noscript>
 {% endblock %}
 
 {% block details %}
+    {% if not serverAi %}
     {% set totalMegabytes = services|reduce((sum, service) => sum + service.megabytes, 0) %}
     <dl class="meta altmonitor-glance" aria-label="{{ 'At a glance'|t('alt-monitor') }}">
         <div class="data"><dt class="heading">{{ 'Cost'|t('alt-monitor') }}</dt><dd class="value">{{ 'Free'|t('alt-monitor') }}</dd></div>
@@ -298,4 +304,5 @@
             ? 'MIT (model), Apache 2.0 or CC BY 4.0 (Opus-MT translation), Apache 2.0 (Transformers.js)'|t('alt-monitor')
             : 'MIT (model), Apache 2.0 (Transformers.js)'|t('alt-monitor') }}</dd></div>
     </dl>
+    {% endif %}
 {% endblock %}

@@ -17,6 +17,12 @@
                     return;
                 }
 
+                // Still waiting in the queue: the page already says so.
+                if (scan.status === 'queued') {
+                    setTimeout(poll, 3000);
+                    return;
+                }
+
                 bar.style.width = scan.progress + '%';
                 bar.parentNode.setAttribute('aria-valuenow', scan.progress);
                 text.textContent = Craft.t('alt-monitor', '{type}: {scanned, number} of {total, number} ({progress}%)', {
@@ -49,7 +55,7 @@
                 result.textContent = data.message;
                 result.className = data.reachable && data.modelAvailable ? 'success' : 'error';
             }).catch(function(error) {
-                result.textContent = (error.response && error.response.data && error.response.data.message) || Craft.t('alt-monitor', 'The test could not be run.');
+                result.textContent = serverMessage(error, Craft.t('alt-monitor', 'The test could not be run.'));
                 result.className = 'error';
             }).finally(function() {
                 button.classList.remove('loading');
@@ -89,6 +95,8 @@
         self.eta = panel.querySelector('[data-eta]');
         self.title = panel.querySelector('.altmonitor-dialog-head h2');
         self.titleText = self.title ? self.title.textContent : '';
+        self.subtitle = panel.querySelector('.altmonitor-dialog-head p');
+        self.subtitleText = self.subtitle ? self.subtitle.textContent : '';
         // The images (assetId-siteId) given a new suggestion this run, to update on Close.
         self.changed = [];
         self.stopped = false;
@@ -341,7 +349,7 @@
         };
         // The worker itself died (e.g. out of memory): nothing it was doing will answer.
         self.worker.onerror = function(event) {
-            self.reset(new Error(event.message || 'The image model stopped working.'));
+            self.reset(new Error(event.message || 'The worker stopped.'));
         };
 
         return self.worker;
@@ -413,7 +421,7 @@
         }
 
         Object.keys(pending).forEach(function(id) {
-            pending[id].reject(error || new Error('The image model stopped working.'));
+            pending[id].reject(error || plainError(Craft.t('alt-monitor', 'The image model stopped working. Reload the page to try again.')));
         });
     };
 
@@ -444,7 +452,7 @@
         // The worker died (it can run out of memory): the run stops, rather than fetching every
         // image left only to fail it.
         if (!self.worker) {
-            return Promise.reject(new Error('The image model stopped working.'));
+            return Promise.reject(plainError(Craft.t('alt-monitor', 'The image model stopped working. Reload the page to try again.')));
         }
 
         // The previous image and its text go while this one is fetched.
@@ -467,7 +475,7 @@
             return response.blob();
         }).then(function(image) {
             if (!self.worker) {
-                throw new Error('The image model stopped working.');
+                throw plainError(Craft.t('alt-monitor', 'The image model stopped working. Reload the page to try again.'));
             }
 
             self.show(image, name, '');
@@ -535,6 +543,10 @@
         self.translating = false;
         self.changed = [];
         self.begin();
+
+        if (self.subtitle) {
+            self.subtitle.textContent = self.subtitleText;
+        }
 
         if (self.title) {
             self.title.textContent = self.titleText;
@@ -655,7 +667,7 @@
         }).then(function() {
             return loop().then(finished, function(error) {
                 enableDescribeButtons();
-                end(Craft.t('alt-monitor', 'Stopped because of an error: {message}', {message: error.message}));
+                end(Craft.t('alt-monitor', 'Stopped because of an error: {message}', {message: errorText(error)}));
             });
         }, function(error) {
             enableDescribeButtons();
@@ -666,7 +678,7 @@
                 return;
             }
 
-            end(Craft.t('alt-monitor', 'The image model could not be loaded: {message}', {message: error.message}));
+            end(Craft.t('alt-monitor', 'The image model could not be loaded: {message}', {message: errorText(error)}));
         });
     };
 
@@ -688,6 +700,10 @@
         self.translating = true;
         self.changed = [];
         self.begin();
+
+        if (self.subtitle) {
+            self.subtitle.textContent = Craft.t('alt-monitor', 'Each suggestion is translated in your browser. Nothing is saved until you approve it.');
+        }
 
         if (self.title) {
             self.title.textContent = Craft.t('alt-monitor', 'Translating suggestions');
@@ -803,6 +819,49 @@
         });
     }
 
+    // The element in a fresh copy of a part that matches one in the old part: by name, then by
+    // its first data attribute (Describe buttons have no name), then by its place among the
+    // part's buttons, links and fields. Keeps keyboard focus where it was after a refresh.
+    function twinOf(element, part, replacement) {
+        var focusable = 'a[href], button, input, select, textarea';
+        var escape = function(value) {
+            return String(value).replace(/["\\]/g, '\\$&');
+        };
+        var data = Array.prototype.find.call(element.attributes, function(attribute) {
+            return attribute.name.indexOf('data-') === 0;
+        });
+        var selector = element.name
+            ? '[name="' + escape(element.name) + '"]'
+            : (data ? '[' + data.name + '="' + escape(data.value) + '"]' : null);
+        var found = selector ? replacement.querySelector(selector) : null;
+
+        if (found) {
+            return found;
+        }
+
+        var index = Array.prototype.indexOf.call(part.querySelectorAll(focusable), element);
+
+        return index === -1 ? null : replacement.querySelectorAll(focusable)[index] || null;
+    }
+
+    // Replaces an editor sidebar box with a fresh copy, keeping keyboard focus in it: on the
+    // matching button, or the box's first one when the button used (now disabled) lost focus.
+    function replaceBox(box, fresh, afterAction) {
+        var focused = document.activeElement;
+        var inside = box.contains(focused);
+        var lost = afterAction && (!focused || focused === document.body);
+
+        box.replaceWith(fresh);
+
+        if (inside || lost) {
+            var again = (inside && twinOf(focused, box, fresh)) || fresh.querySelector('button:not([disabled]), a[href]');
+
+            if (again) {
+                again.focus({preventScroll: lost});
+            }
+        }
+    }
+
     function swapPart(part, replacement) {
         var focused = part.contains(document.activeElement) ? document.activeElement : null;
 
@@ -837,8 +896,8 @@
             }
         });
 
-        if (focused && focused.name) {
-            var again = replacement.querySelector('[name="' + focused.name.replace(/"/g, '\\"') + '"]');
+        if (focused) {
+            var again = twinOf(focused, part, replacement);
 
             if (again) {
                 again.focus();
@@ -1339,12 +1398,15 @@
                     }
                 });
             }, function(failure) {
+                // The worker stays up after an error it reported: end it, or retries pile up workers.
+                current.reset();
+
                 if (describer !== current) {
                     return;
                 }
 
                 describer = null;
-                show('missing', Craft.t('alt-monitor', 'The translation model could not be loaded: {message}', {message: failure.message}));
+                show('missing', Craft.t('alt-monitor', 'The translation model could not be loaded: {message}', {message: errorText(failure)}));
             });
         });
 
@@ -1460,12 +1522,14 @@
                 }
             });
         }, function(error) {
+            describer.reset();
+
             if (self.describer !== describer) {
                 return;
             }
 
             self.describer = null;
-            self.root.querySelector('[data-error]').textContent = Craft.t('alt-monitor', 'The image model could not be loaded: {message}', {message: error.message});
+            self.root.querySelector('[data-error]').textContent = Craft.t('alt-monitor', 'The image model could not be loaded: {message}', {message: errorText(error)});
             self.show('error');
         });
     };
@@ -1660,7 +1724,10 @@
                     return;
                 }
 
-                var changed = fields().filter(isChanged);
+                // A row Enter is already saving isn't sent twice.
+                var changed = fields().filter(function(field) {
+                    return isChanged(field) && field.getAttribute('aria-busy') !== 'true';
+                });
                 var saved = 0;
                 var failed = [];
 
@@ -1698,7 +1765,8 @@
         form.addEventListener('keydown', function(event) {
             var field = event.target;
 
-            if (event.key !== 'Enter' || !saveChanged || field.tagName !== 'INPUT' || fields().indexOf(field) === -1) {
+            // Enter while an input method is composing (Japanese, Chinese…) only confirms the text.
+            if (event.key !== 'Enter' || event.isComposing || event.keyCode === 229 || !saveChanged || field.tagName !== 'INPUT' || fields().indexOf(field) === -1) {
                 return;
             }
 
@@ -1745,19 +1813,80 @@
         }
     });
 
+    // An error whose message is written for people (translated), shown as it is.
+    function plainError(text) {
+        var error = new Error(text);
+        error.plain = true;
+
+        return error;
+    }
+
+    // What to tell people about an error: its message when written for them, otherwise a plain
+    // sentence, with the details in the browser console for whoever looks into it.
+    function errorText(error) {
+        if (error && error.plain) {
+            return error.message;
+        }
+
+        if (serverMessage(error, null)) {
+            return serverMessage(error, null);
+        }
+
+        if (window.console) {
+            console.warn('AltMonitor:', error);
+        }
+
+        return Craft.t('alt-monitor', 'Something went wrong. Check the internet connection, then try again.');
+    }
+
+    // The message a failed request's answer gives, or the fallback.
+    function serverMessage(error, fallback) {
+        return (error && error.response && error.response.data && error.response.data.message) || fallback;
+    }
+
+    // Buttons that decide a suggestion. While one is running, the others for the same suggestion
+    // wait: approving and rejecting it at once would make one of them fail.
+    var DECISION_BUTTONS = '[data-approve], [data-reject], [data-use-suggestion], [data-sidebar-use], [data-sidebar-dismiss], [data-entry-use], [data-entry-dismiss]';
+
+    // With Ollama: asks the server for a new suggestion for an image ({assetId, siteId}).
+    function regenerateButton(button, image) {
+        button.addEventListener('click', function() {
+            button.classList.add('loading');
+            button.disabled = true;
+            Craft.sendActionRequest('POST', 'alt-monitor/suggestions/regenerate', {data: image()}).then(function() {
+                Craft.cp.displayNotice(Craft.t('alt-monitor', 'Making a new suggestion. It shows here when it’s ready.'));
+            }).catch(function(error) {
+                Craft.cp.displayError(serverMessage(error, Craft.t('alt-monitor', 'The suggestion could not be generated.')));
+                button.disabled = false;
+            }).finally(function() {
+                button.classList.remove('loading');
+            });
+        });
+    }
+
     // Approves or rejects one suggestion without leaving the page.
     function decide(button, action, data, done) {
+        var group = button.closest('tr, li, [data-suggestion], fieldset') || button.parentNode;
+        var others = Array.prototype.filter.call(group.querySelectorAll(DECISION_BUTTONS), function(other) {
+            return !other.disabled;
+        });
+
         button.classList.add('loading');
+        others.forEach(function(other) {
+            other.disabled = true;
+        });
         button.disabled = true;
 
         return Craft.sendActionRequest('POST', 'alt-monitor/suggestions/' + action, {data: data}).then(function(response) {
             Craft.cp.displayNotice(response.data.message);
             done(response.data);
         }).catch(function(error) {
-            var message = error.response && error.response.data && error.response.data.message;
-            Craft.cp.displayError(message || (action === 'approve'
+            Craft.cp.displayError(serverMessage(error, action === 'approve'
                 ? Craft.t('alt-monitor', 'The suggestion could not be approved.')
                 : Craft.t('alt-monitor', 'The suggestion could not be rejected.')));
+            others.forEach(function(other) {
+                other.disabled = false;
+            });
             button.disabled = false;
         }).finally(function() {
             button.classList.remove('loading');
@@ -1912,9 +2041,8 @@
 
             return data.message;
         }, function(error) {
-            var message = error.response && error.response.data && error.response.data.message;
             field.classList.add('error');
-            throw message || Craft.t('alt-monitor', 'The alt text could not be saved.');
+            throw serverMessage(error, Craft.t('alt-monitor', 'The alt text could not be saved.'));
         }).finally(function() {
             field.removeAttribute('aria-busy');
         });
@@ -2041,6 +2169,13 @@
             if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
                 target = row.querySelector('[data-approve]');
             } else if (event.key === 'Escape' && !event.ctrlKey && !event.metaKey) {
+                // Esc never throws away text someone has edited: Reject still does.
+                var field = row.querySelector('textarea');
+
+                if (field && field.value !== field.defaultValue) {
+                    return;
+                }
+
                 target = row.querySelector('[data-reject]');
             }
 
@@ -2190,7 +2325,7 @@
                 var fresh = holder.querySelector('[data-altmonitor-sidebar]');
 
                 if (fresh && box.parentNode) {
-                    box.replaceWith(fresh);
+                    replaceBox(box, fresh, true);
                     sidebarBox(fresh);
                 }
             }).catch(function() {});
@@ -2238,18 +2373,8 @@
         }
 
         if (generate) {
-            generate.addEventListener('click', function() {
-                generate.classList.add('loading');
-                generate.disabled = true;
-                Craft.sendActionRequest('POST', 'alt-monitor/suggestions/regenerate', {data: image}).then(function() {
-                    Craft.cp.displayNotice(Craft.t('alt-monitor', 'Making a new suggestion. It shows here when it’s ready.'));
-                }).catch(function(error) {
-                    var message = error.response && error.response.data && error.response.data.message;
-                    Craft.cp.displayError(message || Craft.t('alt-monitor', 'The suggestion could not be generated.'));
-                    generate.disabled = false;
-                }).finally(function() {
-                    generate.classList.remove('loading');
-                });
+            regenerateButton(generate, function() {
+                return image;
             });
         }
 
@@ -2407,18 +2532,8 @@
         });
 
         box.querySelectorAll('[data-entry-generate]').forEach(function(button) {
-            button.addEventListener('click', function() {
-                button.classList.add('loading');
-                button.disabled = true;
-                Craft.sendActionRequest('POST', 'alt-monitor/suggestions/regenerate', {data: imageOf(button.closest('[data-entry-image]'))}).then(function() {
-                    Craft.cp.displayNotice(Craft.t('alt-monitor', 'Making a new suggestion. It shows here when it’s ready.'));
-                }).catch(function(error) {
-                    var message = error.response && error.response.data && error.response.data.message;
-                    Craft.cp.displayError(message || Craft.t('alt-monitor', 'The suggestion could not be generated.'));
-                    button.disabled = false;
-                }).finally(function() {
-                    button.classList.remove('loading');
-                });
+            regenerateButton(button, function() {
+                return imageOf(button.closest('[data-entry-image]'));
             });
         });
 
@@ -2544,7 +2659,7 @@
                 return;
             }
 
-            box.replaceWith(fresh);
+            replaceBox(box, fresh, force);
 
             // Craft loads thumbnails by script, as it does for content it loads itself.
             if (window.jQuery && Craft.cp && Craft.cp.elementThumbLoader) {

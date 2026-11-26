@@ -42,7 +42,7 @@
     {% set scanned = stats.audited > 0 and (fullScanDone ?? true) %}
 
     {% if activeScan %}
-        <div class="altmonitor-panel" data-altmonitor-scan id="altmonitor-active-scan" aria-live="polite">
+        <div class="altmonitor-panel" data-altmonitor-scan id="altmonitor-active-scan">
             <h2>{{ 'Scanning your images…'|t('alt-monitor') }}</h2>
             <div class="altmonitor-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ (activeScan.progress() * 100)|round }}" aria-label="{{ 'Scan progress'|t('alt-monitor') }}">
                 <div data-progress-bar style="width: {{ (activeScan.progress() * 100)|round }}%"></div>
