@@ -1,48 +1,24 @@
 # Release Notes for AltMonitor
 
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
 ## Unreleased
 
 ### Added
-- Added a dashboard with alt text coverage, counts by status and usage, and three steps: find images, describe them, check and approve.
-- Added alt text checks per image and site: Missing, Weak, Needs review and Good, with the reason for each.
-- Added decorative images: marked images need no alt text, and file names that look decorative are flagged for review.
-- Added full, changes-only and usage scans in Craft's queue, with progress, retries and the last scan's result on the dashboard.
-- Added usage detection for Assets fields (including Matrix, nested content and global sets) and images in rich text.
-- Added alt text suggestions written from the image itself by Florence-2, running free in the browser.
-- Added the Image model page, where each person agrees to the one-time download (about 304 MB) and can remove it.
-- Added suggestions in the site's language: optional translation models for 20 languages, downloaded one language at a time.
-- Added **Translate into {language}** for English suggestions on non-English sites, which translates just the text.
-- Added a suggestion language per site (Settings → Languages), by default the site's own language.
-- Added the Images list: filters, search, inline editing, **Save changes**, and bulk describe, approve and mark as decorative.
-- Added **Export CSV** on the Images list: every image the filters show (all pages) with its status, issues, current and suggested alt text, usage, links and an empty **New alt text** column, for content teams working outside Craft.
-- Added an image page with the suggestion, describing, decorative toggle and where the image is used.
-- Added the Suggestions page: edit, approve, reject, **Approve selected**, **Approve all on this page**, and keyboard shortcuts.
-- Added live hints while typing alt text, using the same checks as scans.
-- Added extra generic words (Settings → Scanning & rules); the next full scan re-checks every image with them.
-- Added a warning before leaving a page with unsaved alt text.
-- Added an **Alt text check** box in Craft's asset editor sidebar, with **Use** and **Reject**.
-- Added an **Image alt text** box in Craft's entry editor sidebar: how many of the entry's images have missing or weak alt text, each with **Describe**, **Use** and **Edit image**. It reads the entry as it is being edited (Assets fields, Matrix, rich text) and updates after each autosave.
-- Added **Don’t publish entries with images missing alt text** (Settings → Scanning & rules, off by default), which stops saving an enabled entry and names the images at their fields.
-- Added an **Alt text status** column and filter to Craft's Assets index.
-- Added the **Alt text coverage** dashboard widget.
-- Added the **Pages** screen: entries and other content ranked by how many of their images need work (missing, weak, to review, or embedded without alt text), per site, with **Fix images** opening the Images list narrowed to that page. Images in Matrix and other nested content count toward the entry holding them.
-- Added a check for images embedded in rich text without alt text there: the usage scan notes it, the Images list can show those images (**More checks**), and the image page shows what each piece of content's text says now (none, different or the same).
-- Added a check for the same alt text on different images (per site, ignoring case): **More checks → Same alt text as other images**, sorted so each group is together, and a note on each such image.
-- Added alt text to the Images list search.
-- Added the `altText(asset)` Twig function, which prints an image's alt text as an `alt` attribute, or `alt=""` when it is marked decorative.
-- Added a template check for developers: in dev mode, site pages warn in the browser console about `<img>` tags with no `alt` attribute and images with no alt text in Craft. It never runs outside dev mode; `templateCheck` in `config/alt-monitor.php` turns it off.
-- Added the `alt-monitor/scan` console command (`--full`, `--usage`, `--wait`).
-- Added optional server-side suggestions with Ollama, set in `config/alt-monitor.php` only.
-- Added settings in two tabs, **Scanning & rules** (with how images are checked) and **Languages**, overridable from `config/alt-monitor.php`.
-- Added the “View AltMonitor”, “Run scans”, “Get suggestions”, “Edit alt text”, “Approve suggestions” and “Manage settings” permissions.
+- Alt text checks for every image, per site: Missing, Weak, Needs review and Good, with the reason. Images can be marked decorative.
+- Full, changes-only and usage scans in Craft's queue, from the dashboard or `php craft alt-monitor/scan`.
+- Alt text suggestions written from the image by Florence-2, free in the browser, after a one-time download each person agrees to on the Image model page.
+- Suggestions in the site's language: optional translation models for 20 languages, and a suggestion language per site.
+- A dashboard, an Images list (filters, search, inline editing, bulk actions, CSV export), an image page, a Pages list ranking content by images to fix, and a Suggestions page to approve or reject.
+- Checks for images in rich text without alt text there, and for the same alt text on different images.
+- An alt text box in Craft's entry and asset editors, a status column and filter in the Assets index, and a dashboard widget.
+- An option to stop entries being published while an image in them has no alt text.
+- The `altText()` Twig function, and a dev mode check that warns in the browser console about images without `alt`.
+- Optional server-side suggestions with Ollama, and an event for supplying another AI provider.
+- Permissions to view, scan, get suggestions, edit alt text, approve suggestions and manage settings.
 
 ### Security
-- Nothing is downloaded to a browser without the person's consent on the Image model page.
-- Images go only from the Craft site to the person's browser; they are never sent to an outside service.
-- Alt text is written only through Craft's element saving, after checking the user may save the asset.
-- Every action checks its permission; changes need a POST request with Craft's CSRF token.
-- Images are served to the browser only to users who may view them.
-- The CSV export has only the images the user may see in the list, and cells that start like a spreadsheet formula are written as plain text.
-- Ollama is only contacted on allowed hosts, never on metadata or other blocked addresses, without redirects, and its answers aren't logged.
-- `allowedAiHosts` is read from the config file only and never saved to project config.
-- The Image model page only links back to AltMonitor pages or Craft's asset editor, also where the control panel is reached through `index.php?p=`, and never through `..` or encoded slashes.
+- Nothing is downloaded to a browser without the person's consent.
+- Images go only from the site to the person's browser, or to an allowed Ollama host.
+- Alt text is saved only for people allowed to save the asset, and only from images they may see.
+- The CSV export has only the images the user may see, and cells that start like a spreadsheet formula are written as text.
