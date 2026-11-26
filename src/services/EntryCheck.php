@@ -44,12 +44,13 @@ class EntryCheck extends Component
      * The images an element uses, in the order found, each with the handle of the field (at the
      * top level of the element) it was first found in.
      *
+     * @param bool $liveOnly Leave out nested entries that are disabled (not shown on the site).
      * @return array<int, string> Asset ID => field handle.
      */
-    public function imageIds(ElementInterface $element): array
+    public function imageIds(ElementInterface $element, bool $liveOnly = false): array
     {
         $found = [];
-        $this->collect($element, null, 0, $found);
+        $this->collect($element, null, 0, $found, $liveOnly);
 
         if ($found === []) {
             return [];
@@ -70,11 +71,12 @@ class EntryCheck extends Component
      * The element's images as the box shows them, and how many more the user may not see.
      *
      * @param User|null $user Null: every image (the publish check), regardless of who saves.
+     * @param bool $liveOnly Leave out nested entries that are disabled (the publish check).
      * @return array{images: list<EntryImage>, hidden: int}
      */
-    public function images(ElementInterface $element, ?User $user): array
+    public function images(ElementInterface $element, ?User $user, bool $liveOnly = false): array
     {
-        $ids = $this->imageIds($element);
+        $ids = $this->imageIds($element, $liveOnly);
 
         if ($ids === []) {
             return ['images' => [], 'hidden' => 0];
@@ -160,7 +162,8 @@ class EntryCheck extends Component
         $user = Craft::$app->getUser()->getIdentity();
         $scanner = AltMonitor::getInstance()->getAssetScanner();
 
-        foreach ($this->images($element, null)['images'] as $image) {
+        // Disabled Matrix blocks aren't published, so their images don't block publishing.
+        foreach ($this->images($element, null, true)['images'] as $image) {
             if (!$image->decorative && $image->status === AltStatus::MISSING) {
                 $missing[$image->fieldHandle] ??= ['names' => [], 'hidden' => 0];
 
@@ -263,7 +266,7 @@ class EntryCheck extends Component
     /**
      * @param array<int, string> $found
      */
-    private function collect(ElementInterface $element, ?string $topHandle, int $depth, array &$found): void
+    private function collect(ElementInterface $element, ?string $topHandle, int $depth, array &$found, bool $liveOnly = false): void
     {
         $layout = $element->getFieldLayout();
 
@@ -293,7 +296,9 @@ class EntryCheck extends Component
 
             if ($field instanceof ElementContainerFieldInterface && $depth < self::MAX_DEPTH) {
                 foreach ($this->nestedElements($field, $value, $element) as $nested) {
-                    $this->collect($nested, $handle, $depth + 1, $found);
+                    if (!$liveOnly || ($nested->enabled && $nested->getEnabledForSite())) {
+                        $this->collect($nested, $handle, $depth + 1, $found, $liveOnly);
+                    }
                 }
             }
 
