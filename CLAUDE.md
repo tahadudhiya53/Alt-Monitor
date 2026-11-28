@@ -514,4 +514,14 @@ lock references).
   unused.
 - Documentation stays in README.md, CHANGELOG.md (Keep a Changelog, `## Unreleased`) and this
   file. Don't create other docs.
-- The user controls Git: there is no repository yet; don't initialise, commit or push.
+- The user controls Git (`github.com/tahadudhiya53/Alt-Monitor`, branch per change, merged by
+  pull request): don't commit or push unless asked.
+
+## Releasing
+
+1. Move `## Unreleased` in CHANGELOG.md to `## <version> - <date>`.
+2. Set the same version in `composer.json` and in `PluginTest` (the only time it changes); bump
+   `schemaVersion` only with a new migration.
+3. Tag the merge commit with that exact version (`5.0.0`, no `v`): Packagist skips a tag that
+   doesn't match `composer.json`'s `version`.
+4. `.gitattributes` keeps tests, dev config, the lock file and this file out of the package.

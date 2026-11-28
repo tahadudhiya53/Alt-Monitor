@@ -2,7 +2,7 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 5.0.0 - 2026-11-28
 
 ### Added
 - Alt text checks for every image, per site: Missing, Weak, Needs review and Good, with the reason. Images can be marked decorative.

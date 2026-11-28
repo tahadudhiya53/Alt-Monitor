@@ -18,6 +18,12 @@
             "name": "Taha Dudhiya"
         }
     ],
+    "homepage": "https://github.com/tahadudhiya53/Alt-Monitor",
+    "support": {
+        "issues": "https://github.com/tahadudhiya53/Alt-Monitor/issues",
+        "source": "https://github.com/tahadudhiya53/Alt-Monitor",
+        "docs": "https://github.com/tahadudhiya53/Alt-Monitor/blob/main/README.md"
+    },
     "require": {
         "php": ">=8.2.0",
         "craftcms/cms": "^5.9.0"
@@ -42,7 +48,9 @@
         "class": "Tahadudhiya\\AltMonitor\\AltMonitor",
         "handle": "alt-monitor",
         "name": "AltMonitor",
-        "developer": "Taha Dudhiya"
+        "developer": "Taha Dudhiya",
+        "documentationUrl": "https://github.com/tahadudhiya53/Alt-Monitor/blob/main/README.md",
+        "changelogUrl": "https://raw.githubusercontent.com/tahadudhiya53/Alt-Monitor/main/CHANGELOG.md"
     },
     "scripts": {
         "check-cs": "@php -d error_reporting=6143 vendor/bin/ecs check --ansi",
