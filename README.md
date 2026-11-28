@@ -30,6 +30,9 @@ Scanning, checks and editing work without any of this.
 
 ## Installation
 
+From the Plugin Store: **Settings → Plugins → Plugin Store**, search for **AltMonitor** and
+install it. Or with Composer:
+
 ```bash
 composer require tahadudhiya53/craft-alt-monitor
 php craft plugin/install alt-monitor
