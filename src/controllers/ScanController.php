@@ -15,6 +15,8 @@ use yii\web\Response;
  */
 class ScanController extends Controller
 {
+    use RequestInput;
+
     public function beforeAction($action): bool
     {
         if (!parent::beforeAction($action)) {
@@ -32,7 +34,7 @@ class ScanController extends Controller
     {
         $this->requirePostRequest();
 
-        $type = ScanType::tryFrom((string)$this->request->getBodyParam('type')) ?? throw new BadRequestHttpException('Unknown scan type.');
+        $type = ScanType::tryFrom($this->text('type')) ?? throw new BadRequestHttpException('Unknown scan type.');
 
         try {
             $scan = AltMonitor::getInstance()->getScans()->start($type);

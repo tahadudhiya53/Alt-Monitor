@@ -31,7 +31,7 @@ class DashboardController extends Controller
     {
         $plugin = AltMonitor::getInstance();
         $scans = $plugin->getScans();
-        $settings = $plugin->getSettings();
+        $provider = $plugin->getAiProviders()->getProvider();
 
         return $this->renderTemplate('alt-monitor/_dashboard', [
             'stats' => $plugin->getAudits()->stats($plugin->getAudits()->viewableVolumeIds($this->user()), $this->user()),
@@ -41,8 +41,9 @@ class DashboardController extends Controller
             // Images checked on save alone are not the whole library: step 1 needs a full scan.
             'fullScanDone' => $scans->latestCompleted([ScanType::FULL]) !== null,
             'latestScan' => $scans->latest(),
-            'serverAi' => $settings->aiEnabled,
-            'aiModel' => $settings->aiEnabled ? $settings->ollamaModel : $plugin->getAiProviders()->browserConfig()['label'],
+            // A provider from Ollama or from another plugin (EVENT_DEFINE_PROVIDER).
+            'serverAi' => $provider !== null,
+            'aiModel' => $provider?->modelName() ?? $plugin->getAiProviders()->browserConfig()['label'],
             'describer' => $plugin->getAiProviders()->describerConfig(),
             'canScan' => Craft::$app->getUser()->checkPermission(AltMonitor::PERMISSION_RUN_SCANS),
             'canGenerate' => Craft::$app->getUser()->checkPermission(AltMonitor::PERMISSION_GENERATE),

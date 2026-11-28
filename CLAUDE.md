@@ -143,14 +143,19 @@ Jobs: `BaseScanJob` (mutex per scan, marks the scan failed on error and rethrows
 `Scans::mayContinue()`, 3 attempts) → `ScanAssetsJob` (site by site, keyset on asset ID; full
 scans prune unscanned audits, incremental scans prune gone ones; may chain a usage scan and a
 suggestion walk), `ScanContentUsageJob` (relations phase, then reference tags phase, then prune +
-`Audits::applyUsageStatuses()`); `GenerateAltTextJob` (given targets, or a walk of audits wanting
-suggestions, 5 per job, TTR scaled by `aiTimeout`).
+`Audits::applyUsageStatuses()`; follow-ups after `complete()` only log when they fail);
+`GenerateAltTextJob` (given targets, 5 per job, TTR scaled by `aiTimeout`; a walk step only
+reserves the next 5 audits wanting suggestions, pushes a targets job for them and the next step,
+so a retried step loses nothing; `userId` limits a walk to `visibleCondition()` of the person who
+started it, null after a scan).
 
 Controllers: `Dashboard` (index, progress JSON), `Model` (the image model page), `Pages` (index), `Scan` (start),
 `Assets` (index, export, view, check, save, decorative, bulk: save / approve / generate, sidebar: the
 editor box's HTML again), `Entries` (sidebar: the entry box's HTML again), `Suggestions` (index, approve, reject, bulk-approve, image, next, store,
 translate, regenerate, generate-all), `Settings` (index, save, test-connection). Shared input reading in the
-`RequestInput` trait. Plugin class registers permissions, CP URL rules (the Image model nav item
+`RequestInput` trait (`positiveInt()`, `queryInt()`, `text()`, `criteria()`, `failureList()`: bulk
+failures with the image's file name). Regenerate, like bulk generate and the browser, needs
+`viewableImage()` only: a suggestion changes no alt text. Plugin class registers permissions, CP URL rules (the Image model nav item
 shows with the generate permission unless Ollama is on and no site needs a translation model),
 asset element events,
 the dashboard widget.
@@ -203,7 +208,9 @@ tests/
   `siteId`), `dateScanned` (used to prune after full scans), `dateAltSaved`. `decorative` is
   indexed for `altText()`.
 - `altmonitor_suggestions` — one current suggestion per (asset, site); regenerating replaces it.
-  Status `queued` doubles as the duplicate-generation reservation (expires after an hour).
+  Status `queued` doubles as the duplicate-generation reservation (expires after an hour);
+  `reserve()` runs under the `altmonitor:reserve` mutex. An expired reservation that still has text
+  goes back to `pending`.
 - `altmonitor_usages` — one row per (asset, source element, source site, field, kind), keyed by a
   hash; rows not refreshed by a usage scan are pruned by `dateUpdated`. `altInContent` (nullable
   boolean): for reference tags inside `<img src>`, whether every such tag in that content gives
@@ -222,7 +229,9 @@ tests/
   `canView`/`canSave`, except that for volumes with shared alt text (audited in the primary site)
   the asset in any site the user has `editSite:` for counts. Lists apply the same rules in SQL
   (`Audits::visibleCondition()`: `viewPeerAssets` by uploader, `editSite`) so totals and pages
-  match what is shown.
+  match what is shown; `Audits::stats()` (dashboard, pills, widget) applies it too. Searches use
+  `Audits::likeOperator()` (`ilike` on PostgreSQL); large deletes go through `Audits::deleteIn()`
+  (1000 values per statement).
 - **Abandoned scans**: no progress for 30 min *and* Craft's queue has nothing waiting or
   reserved, or 6 h in any case (`Scans::active()`); a scan's next job may wait behind others.
 - **Settings set in `config/alt-monitor.php`** are disabled on the Settings page and dropped from
@@ -235,7 +244,9 @@ tests/
   3000 bytes (nginx's default buffers).
 - **Scanning never writes assets.** Only `AltTextEditor::save()` does, after checking the asset
   exists, is an image (`kind`), and `Elements::canSave()` (which includes Craft's `editSite:`
-  check on multi-site). Text is sanitized to one plain line, max 1000 chars.
+  check on multi-site). Text is sanitized to one plain line, max 1000 chars (`sanitize()`: tags
+  removed before and after decoding entities, a lone `<` kept, ZWJ/ZWNJ kept). `PromptBuilder::parse()`
+  sanitizes too, so every AI answer is cleaned the same way.
 - **Empty alt is not automatically an error.** Decorative flag → good; decorative-looking file
   name → review. The filename rule matches the raw name (or a separator-only form), not prose
   that happens to match it.
@@ -249,8 +260,8 @@ tests/
 - **No AI settings in the control panel.** The browser model needs none; Ollama (`aiEnabled`,
   endpoint, model, timeout, `suggestAfterScan`, `fallbackToRules`, `contextFieldHandles`) and the
   browser model sources are config-file only. `SettingsController::EDITABLE` is just
-  `scanBatchSize`, `auditOnSave`, `scanUsageAfterFullScan`, `additionalGenericTerms`,
-  `siteLanguages` (a language choice, not an AI switch); the
+  `scanBatchSize`, `auditOnSave`, `requireAltToPublish`, `scanUsageAfterFullScan`,
+  `additionalGenericTerms`, `siteLanguages` (a language choice, not an AI switch); the
   connection test uses the configured values, never posted ones. `allowedAiHosts` is also
   excluded from `Settings::fields()` so it is never saved to project config.
 - **Why WASM only, q8:** it is the path verified in a real browser; WebGPU would be faster but is
@@ -365,7 +376,8 @@ the element is an `Entry` in `SCENARIO_LIVE` (Craft sets it for enabled saves an
 not propagating/resaving/a revision/nested (`getPrimaryOwnerId()`; the owner checks its nested
 images), and the request is a CP request (console requests are never CP; don't use
 `getIsConsoleRequest()`, which is true for any CLI process, tests included). Only **missing** alt
-blocks; weak never does. One error per top-level field handle, so Craft shows it at the field and
+blocks; weak never does. Images in disabled nested entries (Matrix blocks) don't count
+(`images($element, null, true)`); the sidebar box still lists them. One error per top-level field handle, so Craft shows it at the field and
 in its error summary. Every image counts, but the error names only those the person saving may see
 (`AssetScanner::userMay()`); the rest are counted (“1 image you can’t see”).
 

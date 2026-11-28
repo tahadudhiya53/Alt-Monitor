@@ -77,17 +77,22 @@ class ScanAssetsJob extends BaseScanJob
         $plugin->getSuggestions()->pruneUnaudited();
         $plugin->getScans()->complete($scan->id);
 
-        if ($scan->type === ScanType::FULL && $settings->scanUsageAfterFullScan) {
-            try {
-                $plugin->getScans()->start(ScanType::USAGE);
-            } catch (ScanInProgressException $exception) {
-                Craft::info('The content usage scan after a full scan was not started: ' . $exception->getMessage(), __METHOD__);
+        // The scan is done: a follow-up that fails is logged, never turns it into a failed scan.
+        try {
+            if ($scan->type === ScanType::FULL && $settings->scanUsageAfterFullScan) {
+                try {
+                    $plugin->getScans()->start(ScanType::USAGE);
+                } catch (ScanInProgressException $exception) {
+                    Craft::info('The content usage scan after a full scan was not started: ' . $exception->getMessage(), __METHOD__);
+                }
             }
-        }
 
-        // Only the server can generate unattended; in the browser, someone has to be there.
-        if ($settings->suggestAfterScan && $plugin->getSuggestions()->generatesOnServer()) {
-            $plugin->getSuggestions()->queueForAllWanting();
+            // Only the server can generate unattended; in the browser, someone has to be there.
+            if ($settings->suggestAfterScan && $plugin->getSuggestions()->generatesOnServer()) {
+                $plugin->getSuggestions()->queueForAllWanting();
+            }
+        } catch (\Throwable $exception) {
+            Craft::error('AltMonitor could not start what follows a scan: ' . $exception->getMessage(), __METHOD__);
         }
     }
 

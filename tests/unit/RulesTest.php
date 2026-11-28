@@ -42,6 +42,7 @@ class RulesTest extends TestCase
         yield 'a camera name' => ['IMG_1234', 'other.jpg', false, AltStatus::WEAK, [AltIssue::IDENTIFIER]];
         yield 'a screenshot name' => ['Screenshot 2024-01-05', 'x.png', false, AltStatus::WEAK, [AltIssue::IDENTIFIER]];
         yield 'a hash' => ['a3f9c2e1b7', 'x.png', false, AltStatus::WEAK, [AltIssue::IDENTIFIER]];
+        yield 'only punctuation' => ['---', 'x.png', false, AltStatus::WEAK, [AltIssue::IDENTIFIER]];
         yield 'a lone generic word' => ['Photo', 'x.jpg', false, AltStatus::WEAK, [AltIssue::GENERIC]];
         yield 'a generic phrase' => ['an image', 'x.jpg', false, AltStatus::WEAK, [AltIssue::GENERIC]];
         yield 'a numbered generic word' => ['Picture 3', 'x.jpg', false, AltStatus::WEAK, [AltIssue::GENERIC]];
@@ -124,6 +125,11 @@ class RulesTest extends TestCase
     {
         self::assertSame('A wooden jetty at dawn', AltTextEditor::sanitize("  A <b>wooden</b>\n jetty&nbsp;at dawn\u{200B} "));
         self::assertSame('Fish & chips', AltTextEditor::sanitize('Fish &amp; chips'));
+        // Encoded tags are tags too; a lone “<” is text.
+        self::assertSame('Bold text', AltTextEditor::sanitize('&lt;b&gt;Bold&lt;/b&gt; text'));
+        self::assertSame('I <3 cats, a<b', AltTextEditor::sanitize('I <3 cats, a<b'));
+        // Joiners stay: Persian words and emoji need them.
+        self::assertSame("می\u{200C}خواهم 👩\u{200D}💻", AltTextEditor::sanitize("می\u{200C}خواهم 👩\u{200D}💻"));
     }
 
     public function testExportedCellsNeverRunAsSpreadsheetFormulas(): void

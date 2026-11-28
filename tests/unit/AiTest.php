@@ -122,6 +122,10 @@ class AiTest extends TestCase
         yield 'this image shows' => ['This image shows two cups of coffee', 'Two cups of coffee'];
         yield 'thinking first' => ["<think>It looks like a dog.</think>\nA dog on a beach", 'A dog on a beach'];
         yield 'bullet' => ['- A red bicycle', 'A red bicycle'];
+        yield 'an opening line' => ["Here is the alt text:\nA golden retriever on a beach", 'A golden retriever on a beach'];
+        yield 'sure, first' => ["Sure! Here's a description.\nTwo cups of coffee on a table", 'Two cups of coffee on a table'];
+        yield 'only an opening line' => ["Here's a dog on a beach", "Here's a dog on a beach"];
+        yield 'control characters' => ["A dog\u{0000} on a beach", 'A dog on a beach'];
     }
 
     #[DataProvider('answers')]

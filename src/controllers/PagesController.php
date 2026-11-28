@@ -5,9 +5,7 @@ namespace Tahadudhiya\AltMonitor\controllers;
 use Craft;
 use craft\models\Site;
 use craft\web\Controller;
-use InvalidArgumentException;
 use Tahadudhiya\AltMonitor\AltMonitor;
-use Tahadudhiya\AltMonitor\models\ListCriteria;
 use yii\web\BadRequestHttpException;
 use yii\web\Response;
 
@@ -36,11 +34,7 @@ class PagesController extends Controller
      */
     public function actionIndex(): Response
     {
-        try {
-            $criteria = ListCriteria::fromParams($this->request->getQueryParams());
-        } catch (InvalidArgumentException $exception) {
-            throw new BadRequestHttpException($exception->getMessage(), 0, $exception);
-        }
+        $criteria = $this->criteria();
 
         $plugin = AltMonitor::getInstance();
         $user = $this->user();

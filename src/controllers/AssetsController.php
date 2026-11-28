@@ -6,7 +6,6 @@ use Craft;
 use craft\base\ElementInterface;
 use craft\elements\Asset;
 use craft\web\Controller;
-use InvalidArgumentException;
 use Tahadudhiya\AltMonitor\AltMonitor;
 use Tahadudhiya\AltMonitor\enums\AltStatus;
 use Tahadudhiya\AltMonitor\enums\ListCheck;
@@ -50,11 +49,7 @@ class AssetsController extends Controller
      */
     public function actionIndex(): Response
     {
-        try {
-            $criteria = ListCriteria::fromParams($this->request->getQueryParams());
-        } catch (InvalidArgumentException $exception) {
-            throw new BadRequestHttpException($exception->getMessage(), 0, $exception);
-        }
+        $criteria = $this->criteria();
 
         $audits = AltMonitor::getInstance()->getAudits();
         $volumeIds = $audits->viewableVolumeIds($this->user());
@@ -84,11 +79,7 @@ class AssetsController extends Controller
      */
     public function actionExport(): Response
     {
-        try {
-            $criteria = ListCriteria::fromParams($this->request->getQueryParams());
-        } catch (InvalidArgumentException $exception) {
-            throw new BadRequestHttpException($exception->getMessage(), 0, $exception);
-        }
+        $criteria = $this->criteria();
 
         $export = AltMonitor::getInstance()->getImageExport();
         // Kept in memory up to 2 MB, then in a temporary file.
@@ -244,7 +235,7 @@ class AssetsController extends Controller
     {
         $this->requirePostRequest();
 
-        $intent = (string)$this->request->getBodyParam('intent');
+        $intent = $this->text('intent');
 
         if ($intent === 'save') {
             return $this->saveChanged();
@@ -392,12 +383,14 @@ class AssetsController extends Controller
             return $this->asSuccess($message);
         }
 
-        $labels = [];
+        // Row keys are `assetId-siteId`.
+        $assetIds = [];
 
-        foreach ($failures as $key => $reason) {
-            $labels[] = ['key' => $key, 'reason' => $reason];
+        foreach (array_keys($failures) as $key) {
+            $assetIds[$key] = (int)explode('-', (string)$key)[0];
         }
 
+        $labels = $this->failureList($failures, $assetIds);
         $this->keepFailures($labels);
 
         $summary = Craft::t('alt-monitor', '{failed, number} {failed, plural, =1{image} other{images}} could not be updated.', ['failed' => count($failures)]);

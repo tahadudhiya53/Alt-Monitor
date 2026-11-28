@@ -127,7 +127,7 @@ class SettingsController extends Controller
             ]],
             ['status' => AltStatus::WEAK, 'reasons' => [
                 Craft::t('alt-monitor', 'It’s the file name or has a file extension, like “team-photo.jpg”.'),
-                Craft::t('alt-monitor', 'It’s a code or mostly numbers, like “IMG 1234” or “DSC_0042”.'),
+                Craft::t('alt-monitor', 'It’s a code, mostly numbers or only punctuation, like “IMG 1234”, “DSC_0042” or “---”.'),
                 Craft::t('alt-monitor', 'It’s only a generic word, like “image” or “logo” (see the list below).'),
                 Craft::t('alt-monitor', 'It repeats the same words over and over.'),
             ]],

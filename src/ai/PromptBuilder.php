@@ -5,6 +5,7 @@ namespace Tahadudhiya\AltMonitor\ai;
 use Craft;
 use Tahadudhiya\AltMonitor\errors\AiProviderException;
 use Tahadudhiya\AltMonitor\models\ImageContext;
+use Tahadudhiya\AltMonitor\services\AltTextEditor;
 
 /**
  * Writes the instruction a vision model gets, and turns its answer into alt text.
@@ -64,7 +65,9 @@ final class PromptBuilder
         // Reasoning models may think aloud before answering.
         $text = (string)preg_replace('/<think>.*?<\/think>/is', '', $answer);
         $lines = array_values(array_filter(array_map('trim', preg_split('/\R/', $text) ?: []), static fn(string $line): bool => $line !== ''));
-        $text = $lines[0] ?? '';
+        // Skip an opening such as “Here is the alt text:” and take the first real line.
+        $answers = array_values(array_filter($lines, static fn(string $line): bool => !preg_match('/:\s*$|^(?:sure|okay|certainly|here(?:\'s| is))\b/iu', $line)));
+        $text = $answers[0] ?? $lines[0] ?? '';
 
         $text = (string)preg_replace('/^(?:[-*•>#]+\s*)+/u', '', $text);
         $text = str_replace(['**', '__', '`'], '', $text);
@@ -78,6 +81,8 @@ final class PromptBuilder
             $space = mb_strrpos($cut, ' ');
             $text = rtrim($space !== false ? mb_substr($cut, 0, $space) : $cut, ' ,;:-');
         }
+
+        $text = AltTextEditor::sanitize($text);
 
         if ($text === '' || !preg_match('/\p{L}/u', $text)) {
             throw new AiProviderException(Craft::t('alt-monitor', 'The model gave no usable description.'));

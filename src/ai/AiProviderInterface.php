@@ -6,8 +6,8 @@ use Tahadudhiya\AltMonitor\errors\AiProviderException;
 use Tahadudhiya\AltMonitor\models\AiStatus;
 
 /**
- * A service that describes images. Ollama is the built-in one; others can be registered with
- * {@see \Tahadudhiya\AltMonitor\services\AiProviders::EVENT_REGISTER_PROVIDERS}.
+ * A service that describes images. Ollama is the built-in one; another can replace it through
+ * {@see \Tahadudhiya\AltMonitor\services\AiProviders::EVENT_DEFINE_PROVIDER}.
  *
  * A provider receives image data AltMonitor has already prepared and a finished prompt, and returns
  * the model's raw answer. Cleaning that answer up is AltMonitor's job, not the provider's.

@@ -11,7 +11,6 @@
     '{count, number} selected',
     'As typed:',
     'Approved and saved to the image.',
-    'Suggestion rejected.',
     'The suggestion could not be approved.',
     'The suggestion could not be rejected.',
     'All done. Nothing to review.',
@@ -130,7 +129,7 @@
                                         {% endif %}
                                         <td class="altmonitor-review-image">
                                             <a href="{{ url('alt-monitor/images/' ~ asset.id ~ '/' ~ item.siteId) }}" class="altmonitor-review-thumb" tabindex="-1" aria-hidden="true">{{ asset.getThumbHtml(160)|raw }}</a>
-                                            <a href="{{ url('alt-monitor/images/' ~ asset.id ~ '/' ~ item.siteId) }}" class="smalltext altmonitor-review-name">{{ asset.filename }}</a>
+                                            <a href="{{ url('alt-monitor/images/' ~ asset.id ~ '/' ~ item.siteId) }}" class="smalltext altmonitor-review-name" id="altmonitor-name-{{ key }}">{{ asset.filename }}</a>
                                         </td>
                                         <td>
                                             {% if approvable %}
@@ -141,16 +140,16 @@
                                             {% endif %}
                                             <div class="smalltext light altmonitor-review-meta">
                                                 {% if suggestion %}{% if suggestion.status.value != 'pending' %}{{ macros.suggestionStatus(suggestion) }} {% endif %}{{ suggestion.source.label() }}{% if suggestion.basisLabel() %} · {{ suggestion.basisLabel() }}{% endif %}{% endif %}
-                                                · {{ 'Current:'|t('alt-monitor') }} {{ asset.alt ?: 'no alt text'|t('alt-monitor') }}
                                             </div>
+                                            <div class="smalltext light">{{ 'Current:'|t('alt-monitor') }} {{ asset.alt ?: 'no alt text'|t('alt-monitor') }}</div>
                                             {{ macros.translationNote(suggestion, translator ?? null) }}
                                             {% if suggestion and suggestion.error %}<div class="smalltext error">{{ suggestion.error }}</div>{% endif %}
                                         </td>
                                         <td class="altmonitor-row-actions">
                                             {% if approvable %}
                                                 <div class="flex flex-nowrap">
-                                                    <button type="button" class="btn submit small" data-approve="{{ suggestion.id }}" aria-keyshortcuts="Control+Enter Meta+Enter">{{ 'Approve'|t('alt-monitor') }}</button>
-                                                    <button type="button" class="btn small" data-reject="{{ suggestion.id }}" aria-keyshortcuts="Escape">{{ 'Reject'|t('alt-monitor') }}</button>
+                                                    <button type="button" class="btn submit small" data-approve="{{ suggestion.id }}" aria-describedby="altmonitor-name-{{ key }}" aria-keyshortcuts="Control+Enter Meta+Enter">{{ 'Approve'|t('alt-monitor') }}</button>
+                                                    <button type="button" class="btn small" data-reject="{{ suggestion.id }}" aria-describedby="altmonitor-name-{{ key }}" aria-keyshortcuts="Escape">{{ 'Reject'|t('alt-monitor') }}</button>
                                                 </div>
                                             {% endif %}
                                         </td>

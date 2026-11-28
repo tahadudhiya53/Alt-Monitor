@@ -1,37 +1,32 @@
 # AltMonitor
 
 Find images in Craft CMS with missing or weak alt text, and fix them. AltMonitor checks every
-image, shows what needs work, and suggests alt text written from the image itself, by a free AI
+image, shows what needs work, and suggests alt text written from the image itself by a free AI
 that runs in your browser. Nothing is saved until a person approves it.
 
-## What it does
+- **Free.** No account, API key or cost.
+- **Describes the image, not the file name**, with
+  [Florence-2-base-ft](https://huggingface.co/onnx-community/Florence-2-base-ft) (MIT) running in
+  the browser.
+- **Your images stay on your site.** They go only from Craft to the person's browser.
+- **Works where people edit:** the entry editor, the asset editor and the Assets index.
 
-- **Checks every image** for missing, weak or doubtful alt text, per site.
-- **Suggests alt text from the image itself**, never from the file name. A free AI
-  ([Florence-2](https://huggingface.co/microsoft/Florence-2-base), MIT) runs in your browser.
-  No account, API key or cost.
-- **Suggestions in your sites' languages.** The AI writes English; for 20 languages the browser
-  can translate it, with a free model you download only if you want it.
-- **Review in one place.** Approve, edit or reject suggestions, one by one or many at once.
-- **Shows where images are used** in entries, Matrix and other nested content, global sets and
-  rich text.
-- **Catches problems while people edit.** A box in the entry editor lists the entry's images with
-  missing or weak alt text, and a setting can stop entries being published until they have it.
-- **Fix by page.** Pages lists your entries by how many of their images need work: “Home – 6
-  missing, About – 4”.
-- **Finds what others miss:** images in rich text with no alt text there, and the same alt text
-  on different images.
-- **Works in Craft's own screens.** A box in the asset editor, a column and a filter in the
-  Assets index, and a dashboard widget.
-- **Helps your templates print it.** `{{ altText(asset) }}` prints the alt text, and in dev mode
-  the browser console names images a page prints without `alt`.
+## Contents
+
+- [Requirements](#requirements) · [Installation](#installation) · [Quick start](#quick-start)
+- For editors: [Screens](#screens) · [Statuses](#statuses) · [Describing images](#describing-images) · [Other languages](#other-languages) · [Where images are used](#where-images-are-used)
+- For admins: [Settings](#settings) · [Permissions](#permissions) · [Command line](#command-line) · [Privacy](#privacy-gdpr)
+- For developers: [Templates](#templates) · [Hosting the model files](#hosting-the-model-files-yourself) · [Ollama](#describing-on-your-server-with-ollama) · [Your own AI provider](#your-own-ai-provider)
+- [Known limitations](#known-limitations) · [Development](#development) · [License](#license)
 
 ## Requirements
 
 - Craft CMS 5.9 or later, PHP 8.2 or later.
-- To describe images: an up-to-date desktop browser with WebAssembly (tested in Chrome; Edge,
-  Firefox and Safari are not tested yet), about 1 GB of free memory, and the control panel opened
-  with `https://` (browsers only keep the downloaded model on secure sites).
+- To describe images in the browser: a current desktop browser with WebAssembly, about 1 GB of
+  free memory, and the control panel on `https://` (browsers only keep the downloaded model on
+  secure sites). The automated test runs in Chrome.
+
+Scanning, checks and editing work without any of this.
 
 ## Installation
 
@@ -40,78 +35,75 @@ composer require tahadudhiya53/craft-alt-monitor
 php craft plugin/install alt-monitor
 ```
 
-Then give people the permissions they need (see [Permissions](#permissions)).
+Then give people the [permissions](#permissions) they need.
 
 ## Quick start
 
 1. **Scan.** Open **AltMonitor → Dashboard** and click **Scan all images**. The scan runs in
-   Craft's queue; you can leave the page. It only reads alt text and changes nothing.
-2. **Describe.** Click **Describe them for me**. The first time, the browser asks you to
-   download the image model (about 304 MB, once). Then each image takes about 10 seconds.
-3. **Review.** Open **Suggestions**. Edit the text if needed, then **Approve** (it becomes the
+   Craft's queue, so you can leave the page. It reads alt text and changes nothing.
+2. **Describe.** Click **Describe them for me**. The first time, you are asked to download the
+   image model (about 304 MB, once per browser). Then each image takes about 10 seconds.
+3. **Review.** Open **Suggestions**, edit the text if needed, then **Approve** (it becomes the
    image's alt text) or **Reject**.
 
-Prefer to write alt text yourself? Use **Images**: type it in the list and click **Save changes**.
+Prefer to write alt text yourself? Open **Images**, type it in the list and click **Save changes**.
 
-## The screens
+## Screens
 
 | Screen | What you do there |
 |---|---|
-| **Dashboard** | See how many images need alt text, start scans, start describing. |
-| **Images** | Every checked image with its status. Filter by status, volume, site, usage, suggestion or **More checks**; search by file name, title or alt text. Type alt text in the list, or select images to describe, approve or mark as decorative. **Export CSV** downloads every image the filters show, to share with a content team. |
-| **Image page** (click an image) | The image, its alt text and status, the suggestion (**Use this** / **Reject**), **Describe the image**, **Mark as decorative**, and where the image is used, with the alt text rich text gives it there. |
-| **Pages** | Entries and other content (global sets, categories…), the ones with the most images to fix first, with how many are missing, weak, to review or embedded without alt text. **Fix images** opens the Images list with just that page's images. One site at a time. |
-| **Suggestions** | Everything waiting for review. Edit, **Approve** or **Reject**; **Approve selected** or **Approve all on this page**. Keyboard: Ctrl/⌘ + Enter approves, Esc rejects. |
-| **Image model** | Download or remove the image model and the translation models in this browser. |
-| **Settings** | Two tabs: **Scanning & rules** (scan options, how images are checked, extra generic words) and **Languages**. |
+| **Dashboard** | See how many images need work and start describing. **Scan for changes** checks images changed since the last scan; **Full scan** and **Find where used** are under **More details**. |
+| **Images** | Every checked image with its status. Filter by status, volume, site, usage, suggestion or **More checks**; search file names, titles and alt text. Type alt text in the list, or select images to describe, approve or mark as decorative. **Export CSV** downloads every image the filters show. |
+| **Image page** (click an image) | The image, its alt text and status, the suggestion (**Use this** / **Reject**), **Describe the image**, **Mark as decorative**, **Edit asset**, and where the image is used. |
+| **Pages** | Entries and other content (global sets, categories…) ranked by how many of their images need work. **Fix images** opens the Images list with just that page's images. One site at a time. |
+| **Suggestions** | Everything waiting for review, filtered by status, source, site or text. **Approve**, **Reject**, **Approve selected** or **Approve all on this page**. Keyboard: Ctrl/⌘ + Enter approves, Esc rejects (unless you edited the text). |
+| **Image model** | Download or remove the image model and translation models in this browser. |
+| **Settings** | **Scanning & rules** and **Languages**. |
 
 In Craft's own screens:
 
-- **Asset editor:** an **Alt text check** box in the sidebar shows the status and the suggestion.
-  **Use** puts the suggestion in the Alt Text field; save the asset to keep it.
-- **Entry editor:** an **Image alt text** box in the sidebar says how many of the entry's images
-  have missing or weak alt text and lists them, with **Describe**, **Use** for a suggestion (it
-  saves the alt text to the image right away) and **Edit image** (the asset in a slide-out). It
-  covers Assets fields, Matrix and other nested entries, and images in rich text, as the entry is
-  being edited, and updates after each autosave. Images marked decorative don't count.
-- **Assets index:** an **Alt text status** column, and a filter by status.
+- **Entry editor:** an **Image alt text** box lists the entry's images that need work (missing,
+  weak or to review), from Assets fields, Matrix and other nested entries, and rich text, as the
+  entry is being edited. Each has **Describe**, **Use** (saves the suggestion to the image right
+  away), **Reject** and **Edit image**. It updates after each autosave.
+- **Asset editor:** an **Alt text check** box with the status, the suggestion, **Use** (fills the
+  Alt Text field; save the asset to keep it), **Reject** and **Describe the image**.
+- **Assets index:** an **Alt text status** column, and a filter by status (including
+  **Not checked**).
 - **Dashboard widget:** **Alt text coverage**.
 
-## What the statuses mean
+## Statuses
 
 | Status | Meaning |
 |---|---|
 | **Missing** | No alt text. |
-| **Weak** | The alt text is the file name, a file extension, a code (like `IMG_1234`), a generic word (like “image” or “photo”), or the same words repeated. |
-| **Needs review** | Probably fine, but check it: it starts with “image of”, is very short (under 3 characters) or long (over 250), or has no alt text but the file name looks decorative. |
+| **Weak** | The alt text is the file name, contains a file extension, is a code (`IMG_1234`), is only punctuation (`---`), is a generic word (“image”, “photo”, “logo”…), or repeats the same words. |
+| **Needs review** | Probably fine, but check it: it starts with “image of” / “photo of” or similar, is under 3 characters or over 250, or there is no alt text but the file name looks decorative (`divider.png`). |
 | **Good** | No problem found, or marked as decorative. |
 
 Mark an image as **decorative** (a divider, a background) when it needs no alt text: screen
 readers skip it.
 
-These are automatic checks. They point out likely problems but can't prove alt text is right or
-that a page meets WCAG.
+These are automatic checks. They point out likely problems; they can't prove alt text is right
+or that a page meets WCAG.
 
 ## Describing images
 
-- **Download once, with your consent.** The first time someone clicks **Describe**, they are sent
-  to the **Image model** page. It explains what is downloaded, from where and what those services
-  see. Nothing is downloaded until they tick the box and click **Download**. When it's done,
-  **Continue describing** takes them back and describing starts.
+- **Download once, with consent.** The first time someone clicks **Describe**, they go to the
+  **Image model** page. It says what is downloaded and from where. Nothing is downloaded until
+  they tick the box and click **Download**. **Continue describing** then takes them back.
 
   | Download | Size | From |
   |---|---|---|
-  | The image model (Florence-2) | about 277 MB | huggingface.co |
-  | The AI engine (ONNX Runtime) | about 27 MB | cdn.jsdelivr.net |
+  | Image model (Florence-2-base-ft) | about 277 MB | huggingface.co |
+  | AI engine (ONNX Runtime) | about 27 MB | cdn.jsdelivr.net |
 
-- **Speed** (measured in Chrome): about 35 seconds to download on a fast connection, about
-  1 second to start after that, about 10 seconds per image.
-- **Describing again** gives a different description: it avoids the current alt text and earlier
-  suggestions.
-- **Your images stay with you.** They go from your Craft site to your browser only. Nothing is
-  sent to an AI company.
-- **What it can get wrong.** It writes short, plain descriptions. It doesn't know people, brands
-  or places by name, and can be wrong. That's why every suggestion needs approval.
+- **Speed:** about a minute to download on fast internet; after that the model starts in a
+  second or two and each image takes about 10 seconds.
+- **Describing again** gives a different description: it avoids the current alt text and
+  earlier suggestions.
+- **What it gets wrong:** it writes short, plain descriptions, doesn't know people, brands or
+  places by name, and can be wrong. That's why every suggestion needs approval.
 
 Keep the page open while describing. **Stop** ends it at once.
 
@@ -119,151 +111,102 @@ Keep the page open while describing. **Stop** ends it at once.
 
 The image model writes English. Each site can get suggestions in its own language.
 
-- **Settings → Languages:** choose the suggestion language for each site. The default is the
-  site's own language. Choose English, for example, for a French site that uses English alt text.
-- **Translation models** are separate, optional downloads on the **Image model** page, one per
-  language (about 110–135 MB each): Afrikaans, Arabic, Chinese (Simplified), Czech, Danish,
-  Dutch, Finnish, French, German, Hindi, Hungarian, Indonesian, Italian, Romanian, Russian,
-  Spanish, Swedish, Ukrainian, Vietnamese and Xhosa.
+- **Settings → Languages:** the suggestion language per site. The default is the site's own
+  language; choose English, for example, for a French site that uses English alt text. Changing
+  it doesn't change existing suggestions.
+- **Translation models** are optional downloads on the **Image model** page, listed for the
+  languages your sites use (about 105–140 MB each, plus the 27 MB AI engine if it isn't
+  downloaded yet). Available: Afrikaans, Arabic, Chinese (Simplified), Czech, Danish, Dutch,
+  Finnish, French, German, Hindi, Hungarian, Indonesian, Italian, Romanian, Russian, Spanish,
+  Swedish, Ukrainian, Vietnamese and Xhosa.
 - **When describing**, the suggestion is translated if this browser has that language's model.
-  If not, it stays in English.
-- **English suggestions** for a non-English site are marked “This suggestion is in English.
-  Translate it before using it.” with a **Translate into {language}** button. It translates
-  just the text, in about a second once the model is loaded. If the model isn't downloaded yet,
-  it takes you to that language on the Image model page first; **Continue translating** brings
-  you back.
+  Otherwise it stays in English, marked “This suggestion is in English”, with
+  **Translate into {language}**.
 
-Languages without a model (for example Portuguese, Polish, Japanese, Norwegian, Traditional
-Chinese) get English suggestions, marked, without a Translate button. Translations are machine
-made: check them when you review.
+Other languages (for example Portuguese, Polish, Japanese, Norwegian, Traditional Chinese) get
+English suggestions. Translations are machine made: check them when you review.
 
 ## Where images are used
 
-A **usage scan** finds images in Assets fields (including Matrix, nested content and global sets)
-and in rich text. Drafts, revisions and trashed content are ignored. A full scan runs it
-afterwards (Settings → Scanning).
+**Find where used** (or a full scan, if **Find where images are used after a full scan** is on)
+finds images in Assets fields, Matrix and other nested content, global sets, and rich text.
+Drafts, revisions and trashed content are ignored. It can't see templates, custom code or other
+systems, so “Not found in content” doesn't prove an image is unused.
 
-It can't see templates, custom code or other systems, so “Not found in content” doesn't prove an
-image is unused.
+**Pages** and the rich text check below are built from the last usage scan; run one after big
+content changes.
 
-**Pages** is built from the last usage scan: images in Matrix and other nested content count
-toward the entry that holds them. Run a usage scan (or a full scan) after big content changes.
+**More checks** on the Images list:
 
-## More checks
-
-Two checks look beyond one image's own alt text. Pick them under **More checks** on the Images
-list; each image they apply to also says so under its status.
-
-- **No alt text where embedded in text.** Rich text keeps the alt text an image was inserted
-  with, so the page can show an image with no alt text even when the asset has some, or with
-  older words. The usage scan notes each `<img>` without alt text (decorative images are fine
-  without). The image page's **Where it is used** shows, for each piece of content, what its text
-  says now: **None in the text**, **Different here: “…”** or **Same as the image**. Fix it in the
-  entry. The list updates at the next usage scan; the image page right away.
-- **Same alt text as other images.** For example 40 different photos all called “Team photo”.
-  Compared per site, ignoring case and spaces at the ends, only with images you may see;
-  decorative images and empty alt text are left out. The list is sorted by alt text, so each
-  group is together, and **Same alt text as N other images** lists that group.
-
-After updating AltMonitor, run a usage scan once so the rich text check has something to show.
-
-## In your templates
-
-Alt text in Craft only helps if the template prints it. Use `altText()` on the `<img>` tag:
-
-```twig
-{% set image = entry.image.one() %}
-<img src="{{ image.url }}" {{ altText(image) }}>
-```
-
-It prints `alt="…"` with the image's alt text (escaped, on one line), or `alt=""` when the image
-is marked decorative in AltMonitor, so screen readers skip it. An image with no alt text, or no
-image at all, also gets `alt=""` rather than none, so screen readers don't read the file name.
-
-**Template check (dev mode only).** With Craft's `devMode` on, every front-end page is read after
-it is rendered, and the browser console warns about:
-
-- `<img>` tags with no `alt` attribute, listed one per line, and
-- images printed with `altText()` that have no alt text in Craft yet.
-
-Comments, scripts and styles are skipped, and only whole HTML pages are checked (not JSON, XML or
-page fragments loaded by Ajax). When nothing is wrong, the page is not changed. Outside dev mode
-the check never runs and `altText()` prints only the `alt` attribute. The warnings are an
-inline `<script>`, so a content security policy without `'unsafe-inline'` will block them. To
-turn the check off, set `'templateCheck' => false` in `config/alt-monitor.php`.
+- **No alt text where embedded in text.** Rich text keeps the alt text an image had when it was
+  inserted, so a page can show an image without alt text even when the asset has some. The image
+  page's **Where it is used** shows what each piece of content says now: **None in the text**,
+  **Different here: “…”** or **Same as the image**. Fix it in the entry. Decorative images are
+  fine without.
+- **Same alt text as other images**, for example 40 different photos all called “Team photo”.
+  Compared per site, ignoring case and extra spaces, only among images you may see; decorative
+  images and empty alt text are left out. The list is sorted so each group is together.
 
 ## Settings
 
-**AltMonitor → Settings** has two tabs. Settings are saved to project config, so they can only
-be changed where admin changes are allowed.
+**AltMonitor → Settings** is saved to project config, so it can only be changed where admin
+changes are allowed. Anything set in `config/alt-monitor.php` overrides the page and shows there
+as disabled.
 
-| Tab | Setting | Default |
-|---|---|---|
-| Scanning & rules | Check images when they are saved | On |
-| Scanning & rules | Find where images are used after a full scan | On |
-| Scanning & rules | Images per scan job | 100 |
-| Scanning & rules | Don’t publish entries with images missing alt text | Off |
-| Scanning & rules | Extra generic words: alt text that is only one of them (also with “a”, “the” or a number) counts as weak | None |
-| Languages | Suggestion language per site | The site's language |
+| Setting | Default | Where | |
+|---|---|---|---|
+| `auditOnSave` | `true` | Settings, config | Check images when they are saved |
+| `scanUsageAfterFullScan` | `true` | Settings, config | Find where images are used after a full scan |
+| `scanBatchSize` | `100` | Settings, config | Images checked at a time (10–1000). Lower it if scans run out of time or memory |
+| `requireAltToPublish` | `false` | Settings, config | Don't publish entries with images missing alt text (see below) |
+| `additionalGenericTerms` | `[]` | Settings, config | Extra generic words: alt text that is only one of them (also with “a”, “an”, “the”, “my”, “our”, “your” or a number) is weak |
+| `siteLanguages` | `[]` | Settings, config | Suggestion language by site UID, e.g. `['<site-uid>' => 'en']` |
+| `templateCheck` | `true` | config | In dev mode, warn in the browser console about images without `alt` ([Templates](#templates)) |
+| `browserModelHost` | Hugging Face | config | Where the browser downloads models from |
+| `browserWasmPath` | jsDelivr | config | Where the browser downloads the AI engine from |
+| `browserModel` | `onnx-community/Florence-2-base-ft` | config | Only another build of Florence-2 with the same files works |
+| `aiEnabled` | `false` | config | Describe on the server with Ollama |
+| `ollamaEndpoint` | `http://localhost:11434` | config | Can be an environment variable |
+| `ollamaModel` | `qwen2.5vl:3b` | config | |
+| `aiTimeout` | `120` | config | Seconds per image with Ollama (10–600) |
+| `allowedAiHosts` | `localhost`, `127.0.0.1`, `::1`, `host.docker.internal`, `ollama` | config | Hosts Ollama may be on. Never saved to project config |
+| `suggestAfterScan` | `false` | config | With Ollama, make suggestions after each scan |
+| `fallbackToRules` | `false` | config | With Ollama, when it fails, suggest from caption, title or file name |
+| `contextFieldHandles` | `['caption', 'description']` | config | Fields the fallback may read |
 
-With **Don’t publish entries with images missing alt text** on, saving an enabled entry in the
-control panel stops with an error at each field holding an image with no alt text, naming the
-images. Weak alt text doesn't stop it, and decorative images are fine. Drafts, disabled entries,
-imports and console commands are never stopped.
+**Don't publish entries with images missing alt text:** saving an enabled entry in the control
+panel stops with an error at each field holding an image with no alt text. Weak alt text, decorative
+images and images in disabled Matrix blocks don't stop it. Drafts, disabled entries, imports and
+console commands are never stopped.
 
-After changing the extra generic words, run a full scan: it re-checks every image with the new
-list. The words also apply right away to hints while typing, and an AI description that is only
-one of them is thrown away.
-
-**Scanning & rules** also explains how each status is given and lists the 49 built-in generic
-words (like “image”, “logo”, “placeholder”). With Ollama, it has the **Test connection** button.
-
-Everything can also be set in `config/alt-monitor.php`, which overrides the control panel:
-
-| Setting | Default | |
-|---|---|---|
-| `siteLanguages` | `[]` | Suggestion language by site UID, e.g. `['<site-uid>' => 'en']` |
-| `scanBatchSize` | `100` | Images per scan job (10–1000) |
-| `auditOnSave` | `true` | Check images when they are saved |
-| `requireAltToPublish` | `false` | Don't publish entries while an image in them has no alt text |
-| `scanUsageAfterFullScan` | `true` | Run a usage scan after a full scan |
-| `additionalGenericTerms` | `[]` | Extra generic words |
-| `browserModel` | `onnx-community/Florence-2-base-ft` | Config file only. The image model |
-| `browserModelHost` | Hugging Face | Config file only. Where to download the models from |
-| `browserWasmPath` | jsDelivr | Config file only. Where to download the AI engine from |
-| `aiEnabled` | `false` | Config file only. Describe on the server with Ollama instead |
-| `ollamaEndpoint` | `http://localhost:11434` | Config file only. Can be an environment variable |
-| `ollamaModel` | `qwen2.5vl:3b` | Config file only |
-| `aiTimeout` | `120` | Config file only. Seconds per image with Ollama |
-| `allowedAiHosts` | `localhost`, `127.0.0.1`, `::1`, `host.docker.internal`, `ollama` | Config file only |
-| `suggestAfterScan` | `false` | Config file only. With Ollama, get suggestions after each scan |
-| `fallbackToRules` | `false` | Config file only. With Ollama, suggest from caption, title or file name when it fails |
-| `contextFieldHandles` | `['caption', 'description']` | Config file only. Fields that fallback may use |
-| `templateCheck` | `true` | Config file only. In dev mode, warn in the browser console about images without `alt` |
+After changing the extra generic words, run a **Full scan** to re-check every image.
 
 ## Permissions
 
 | Permission | Allows |
 |---|---|
-| View AltMonitor | The dashboard, images, pages and suggestions, in volumes the user can see |
+| View AltMonitor | The dashboard, Images, Pages, Suggestions and CSV export, the editor boxes, the Assets column and filter, and the dashboard widget, for images in volumes the user can see |
 | ↳ Run scans | Starting scans |
-| ↳ Get suggestions | Describing and translating images |
-| ↳ Edit alt text | Saving alt text and marking images as decorative (the user must also be allowed to save the asset) |
-| ↳ Approve suggestions | Approving and rejecting suggestions (the user must also be allowed to save the asset) |
+| ↳ Get suggestions | Describing and translating; the Image model page |
+| ↳ Edit alt text | Saving alt text and marking images as decorative |
+| ↳ Approve suggestions | Approving and rejecting suggestions |
 | Manage settings | The Settings page |
+
+Saving alt text, approving and **Use** also need Craft's permission to save the asset. On
+multi-site installs, people see images in the sites they may edit.
 
 ## Command line
 
 ```bash
-php craft alt-monitor/scan                # images changed since the last scan (all of them the first time)
+php craft alt-monitor/scan                # images changed since the last scan (all, the first time)
 php craft alt-monitor/scan --full         # every image
 php craft alt-monitor/scan --usage        # where images are used
-php craft alt-monitor/scan --full --wait  # run it now and print the result
+php craft alt-monitor/scan --full --wait  # run it now, show progress and a summary
 ```
 
-With `--wait`, the command runs Craft's queue until the scan is done. Exit codes: `0` done or
-queued, `1` the scan failed, `64` `--full` and `--usage` together, `75` another scan is already
-running (try again later). Nightly example:
+With `--wait` the command runs Craft's queue until the scan ends. Exit codes: `0` done or
+queued, `1` the scan failed or stopped, `64` `--full` and `--usage` together, `75` another scan is
+running. Nightly:
 
 ```
 0 3 * * * cd /path/to/project && php craft alt-monitor/scan --wait >/dev/null
@@ -271,23 +214,39 @@ running (try again later). Nightly example:
 
 ## Privacy (GDPR)
 
-- Images never leave your site and the person's browser.
-- The model files are downloaded from huggingface.co and cdn.jsdelivr.net. Like any download,
-  they see the IP address, browser type and time, and may handle data outside the EU. They get no
-  cookies, account details, images or alt text. You may want to mention this in your privacy
-  notice.
+- Images go only from your site to the person's browser, or to your Ollama server if you set one
+  up. They are never sent to the download services.
+- The model files come from huggingface.co and cdn.jsdelivr.net (unless you
+  [host them yourself](#hosting-the-model-files-yourself)). Like any download, these services see
+  the IP address, browser type and time, and may handle data outside the EU. They get no cookies,
+  account details, images or alt text. You may want to mention this in your privacy notice.
 - The files are kept in that browser only. **Remove from this browser** on the Image model page
-  deletes them.
-- AltMonitor doesn't record who downloaded the model.
+  deletes them. AltMonitor doesn't record who downloaded them.
 
 This describes what the plugin does; it isn't legal advice.
 
-## Advanced
+## Templates
 
-### Hosting the model files yourself
+Alt text only helps if the template prints it. Use `altText()` on the `<img>` tag:
 
-To avoid Hugging Face and jsDelivr (for a content security policy or data rules), host the files
-and set in `config/alt-monitor.php`:
+```twig
+{% set image = entry.image.one() %}
+<img src="{{ image.url }}" {{ altText(image) }}>
+```
+
+It prints `alt="…"` with the image's alt text (escaped, on one line), or `alt=""` when the image
+is marked decorative. An image without alt text, or no image at all, also gets `alt=""`, so
+screen readers don't read the file name.
+
+**Template check (dev mode only).** With `devMode` on, front-end HTML pages are checked after they
+render, and the browser console warns about `<img>` tags without an `alt` attribute and images
+printed with `altText()` that have no alt text yet. Pages with no problem are not changed. The
+warnings are an inline `<script>`, so a content security policy without `'unsafe-inline'` blocks
+them. Turn it off with `'templateCheck' => false`.
+
+## Hosting the model files yourself
+
+To avoid Hugging Face and jsDelivr, host the files and set in `config/alt-monitor.php`:
 
 ```php
 return [
@@ -298,39 +257,52 @@ return [
 
 The Image model page then says no other service is used.
 
-### Describing on your own server with Ollama
+## Describing on your server with Ollama
 
-With [Ollama](https://ollama.com) and a vision model, images are described in Craft's queue on
-the server, without anyone keeping a page open. Set in `config/alt-monitor.php` only:
+With [Ollama](https://ollama.com) and a vision model, images are described in Craft's queue,
+without anyone keeping a page open. In `config/alt-monitor.php` only:
 
 ```php
 return [
     'aiEnabled' => true,
     'ollamaEndpoint' => 'http://localhost:11434',
     'ollamaModel' => 'qwen2.5vl:3b',
-    // Hosts the endpoint may use. Add yours if Ollama isn't local.
+    // Add your host if Ollama isn't local.
     'allowedAiHosts' => ['localhost', '127.0.0.1', '::1', 'host.docker.internal', 'ollama'],
 ];
 ```
 
-**Settings** then shows a **Test connection** button. **Describe them for me** on the dashboard
-and **Get a suggestion** on an image queue the work instead of describing in the browser, so the
-image model isn't downloaded. Ollama writes English too; English suggestions still get **Translate** (in the
-browser). Ollama needs several GB of memory and is slow without a GPU. AltMonitor only connects
-to allowed hosts, refuses URLs with logins or paths, and never connects to addresses such as cloud
-metadata services. Check the licence of the model you choose.
+Settings then shows **Test connection**. **Describe them for me** and **Get a suggestion** queue
+the work instead of describing in the browser, so nobody downloads the image model. Ollama writes English too; **Translate** still works in the browser.
+AltMonitor only connects to allowed hosts, without redirects, and refuses URLs with logins or
+paths and addresses such as cloud metadata services. Ollama needs several GB of memory and is slow
+without a GPU. Check the licence of the model you choose.
+
+## Your own AI provider
+
+A module or plugin can supply its own provider, implementing
+`Tahadudhiya\AltMonitor\ai\AiProviderInterface`:
+
+```php
+use Tahadudhiya\AltMonitor\events\DefineAiProviderEvent;
+use Tahadudhiya\AltMonitor\services\AiProviders;
+use yii\base\Event;
+
+Event::on(AiProviders::class, AiProviders::EVENT_DEFINE_PROVIDER, function(DefineAiProviderEvent $event) {
+    $event->provider = new MyProvider();
+});
+```
+
+AltMonitor then describes images on the server with it, as with Ollama. It prepares the image
+(a resized JPEG) and the prompt, and cleans up the answer.
 
 ## Known limitations
 
-- Describing needs a person on the page (unless you use Ollama).
+- Describing in the browser needs a person on the page (Ollama doesn't).
 - Usage scans can't see templates or custom code.
-- The rich text check reads `<img>` tags whose `src` is a Craft reference tag
-  (`{asset:123:url}`), as Craft's rich text fields store images. Images added by URL aren't
-  assets, so they aren't checked.
-- The template check reads the HTML a template rendered; images added later by JavaScript
-  aren't checked.
-- The image model doesn't know names of people, brands or places.
-- Statuses are automatic checks, not a WCAG audit.
+- The rich text check reads images inserted as Craft assets (`{asset:123:url}`); images added by
+  URL aren't assets.
+- The template check reads the rendered HTML; images added later by JavaScript aren't checked.
 
 ## Development
 
@@ -338,27 +310,15 @@ From `plugins/Alt-Monitor`:
 
 ```bash
 composer install
-composer test           # unit tests (no Craft app needed)
+composer test           # unit tests
 composer phpstan
 composer check-cs
-```
-
-Integration and security tests need the host Craft project and database (DDEV). They run inside
-a rolled-back transaction and mock Ollama:
-
-```bash
-ddev exec -d /var/www/html/plugins/Alt-Monitor composer test-integration
-```
-
-The browser test runs the real image and translation models in headless Chrome on real photos
-(needs Chrome and network access to Hugging Face and jsDelivr):
-
-```bash
-composer test-browser
+ddev exec -d /var/www/html/plugins/Alt-Monitor composer test-integration   # needs the host project (DDEV)
+composer test-browser   # the real models in headless Chrome; needs Chrome and network
 ```
 
 ## License
 
-MIT. See `LICENSE.md`, which also lists the bundled Transformers.js library (Apache 2.0). The
-models are downloaded by each browser, not bundled: Florence-2 (MIT) and Opus-MT by Helsinki-NLP
-(Apache 2.0; English→German CC BY 4.0).
+MIT. See `LICENSE.md`, which also covers the bundled Transformers.js (Apache 2.0). The models are
+downloaded by each browser, not bundled: Florence-2 (MIT) and Opus-MT by Helsinki-NLP (Apache 2.0;
+English→German CC BY 4.0).

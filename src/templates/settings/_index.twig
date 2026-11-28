@@ -74,8 +74,8 @@
         }) }}
 
         {{ forms.textField({
-            label: 'Images per scan job'|t('alt-monitor'),
-            instructions: 'How many images each queue job checks. Lower it if scans run out of time or memory.'|t('alt-monitor'),
+            label: 'Images checked at a time'|t('alt-monitor'),
+            instructions: 'How many images a scan checks in one step. Lower it if scans stop because they run out of time or memory.'|t('alt-monitor'),
             id: 'scanBatchSize',
             name: 'settings[scanBatchSize]',
             type: 'number',

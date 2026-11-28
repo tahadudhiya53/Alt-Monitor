@@ -163,8 +163,8 @@ class Settings extends Model
      */
     public static function normalizeList(mixed $value): array
     {
-        $items = is_array($value) ? $value : preg_split('/[\r\n,]+/', (string)$value);
-        $items = array_map(static fn(mixed $item): string => trim((string)$item), $items ?: []);
+        $items = is_array($value) ? $value : preg_split('/[\r\n,]+/', is_scalar($value) ? (string)$value : '');
+        $items = array_map(static fn(mixed $item): string => is_scalar($item) ? trim((string)$item) : '', $items ?: []);
 
         return array_values(array_unique(array_filter($items, static fn(string $item): bool => $item !== '')));
     }
@@ -203,7 +203,7 @@ class Settings extends Model
             'ollamaEndpoint' => Craft::t('alt-monitor', 'Ollama endpoint'),
             'ollamaModel' => Craft::t('alt-monitor', 'Model'),
             'aiTimeout' => Craft::t('alt-monitor', 'Timeout'),
-            'scanBatchSize' => Craft::t('alt-monitor', 'Images per scan job'),
+            'scanBatchSize' => Craft::t('alt-monitor', 'Images checked at a time'),
         ];
     }
 }

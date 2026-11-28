@@ -123,7 +123,8 @@ class AltTextAnalyzer extends Component
             $issues[] = AltIssue::FILE_EXTENSION;
         }
 
-        if (self::isIdentifier($normalized)) {
+        // No letters or digits (“---”, “…”) says nothing either.
+        if (!preg_match('/[\p{L}\p{N}]/u', $text) || self::isIdentifier($normalized)) {
             $issues[] = AltIssue::IDENTIFIER;
         } elseif ($this->isGeneric($normalized)) {
             $issues[] = AltIssue::GENERIC;

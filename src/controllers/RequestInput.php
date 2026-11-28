@@ -3,7 +3,11 @@
 namespace Tahadudhiya\AltMonitor\controllers;
 
 use Craft;
+use craft\db\Query;
+use craft\db\Table;
 use craft\elements\User;
+use InvalidArgumentException;
+use Tahadudhiya\AltMonitor\models\ListCriteria;
 use yii\web\BadRequestHttpException;
 use yii\web\ForbiddenHttpException;
 
@@ -12,6 +16,9 @@ use yii\web\ForbiddenHttpException;
  */
 trait RequestInput
 {
+    /** A positive whole number that fits a database integer column. */
+    private const POSITIVE_INT = '/^[1-9]\d{0,9}$/';
+
     /**
      * @throws ForbiddenHttpException when nobody is signed in.
      */
@@ -21,9 +28,33 @@ trait RequestInput
     }
 
     /**
+     * A bulk action's failures as people read them: each with its image's file name.
+     *
+     * @param array<int|string, string> $failures Why each failed, by row key.
+     * @param array<int|string, int> $assetIds The image of each row key.
+     * @return list<array{key: string, name: string, reason: string}>
+     */
+    protected function failureList(array $failures, array $assetIds): array
+    {
+        $names = $assetIds === [] ? [] : (new Query())
+            ->select(['filename', 'id'])
+            ->from(Table::ASSETS)
+            ->where(['id' => array_values(array_unique($assetIds))])
+            ->indexBy('id')
+            ->column();
+        $list = [];
+
+        foreach ($failures as $key => $reason) {
+            $list[] = ['key' => (string)$key, 'name' => (string)($names[$assetIds[$key] ?? 0] ?? $key), 'reason' => $reason];
+        }
+
+        return $list;
+    }
+
+    /**
      * Keeps a bulk action's failures for the page it redirects to.
      *
-     * @param list<array{key: string, reason: string}> $failures
+     * @param list<array{key: string, name: string, reason: string}> $failures
      */
     protected function keepFailures(array $failures): void
     {
@@ -33,7 +64,7 @@ trait RequestInput
     }
 
     /**
-     * @return list<array{key: string, reason: string}>
+     * @return list<array{key: string, name?: string, reason: string}>
      */
     protected function failures(): array
     {
@@ -47,7 +78,7 @@ trait RequestInput
     {
         $value = $this->request->getBodyParam($name);
 
-        if (!is_scalar($value) || !preg_match('/^[1-9]\d{0,9}$/', (string)$value)) {
+        if (!is_scalar($value) || !preg_match(self::POSITIVE_INT, (string)$value)) {
             throw new BadRequestHttpException("The “{$name}” parameter must be a positive whole number.");
         }
 
@@ -63,11 +94,25 @@ trait RequestInput
     {
         $value = $this->request->getQueryParam($name);
 
-        if (!is_string($value) || !preg_match('/^[1-9]\d{0,9}$/', $value)) {
+        if (!is_string($value) || !preg_match(self::POSITIVE_INT, $value)) {
             throw new BadRequestHttpException("The “{$name}” parameter must be a positive whole number.");
         }
 
         return (int)$value;
+    }
+
+    /**
+     * A list's filters from the query string.
+     *
+     * @throws BadRequestHttpException when one is malformed.
+     */
+    protected function criteria(): ListCriteria
+    {
+        try {
+            return ListCriteria::fromParams($this->request->getQueryParams());
+        } catch (InvalidArgumentException $exception) {
+            throw new BadRequestHttpException($exception->getMessage(), 0, $exception);
+        }
     }
 
     /**
